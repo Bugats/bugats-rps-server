@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8">
+  <title>Bugats Akmens · Šķēres · Papīrīts ONLINE</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #020617;
+      --card: rgba(15, 23, 42, 0.9);
+      --accent: #0ea5e9;
+      --win: #22c55e;
+      --lose: #ef4444;
+    }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #0f172a, #020617 45%);
+      color: #fff;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: flex;
+    }
+    .left {
+      flex: 1 1 auto;
+      padding: 20px;
+    }
+    .right {
+      width: 280px;
+      background: rgba(2, 6, 23, 0.5);
+      border-left: 1px solid rgba(255,255,255,0.1);
+      padding: 20px;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+      letter-spacing: 0.03em;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 16px;
+      padding: 16px;
+      max-width: 560px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.14);
+    }
+    .row { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    input[type="text"] {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 9999px;
+      padding: 6px 14px;
+      color: white;
+      outline: none;
+    }
+    button {
+      background: rgba(14, 165, 233, 0.1);
+      border: 1px solid rgba(14, 165, 233, 0.4);
+      color: #fff;
+      border-radius: 9999px;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: 0.15s ease;
+      font-weight: 500;
+    }
+    button:hover {
+      background: rgba(14, 165, 233, 0.4);
+      transform: translateY(-1px);
+    }
+    .game-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+    .status {
+      margin-top: 14px;
+      min-height: 30px;
+      font-size: 0.9rem;
+      opacity: 0.85;
+    }
+    .leaderboard-title {
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .lb-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      font-size: 0.9rem;
+    }
+    .tag-online {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+      font-size: 0.7rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .right { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="left">
+    <h1>🐺 Bugats RPS — Akmens · Šķēres · Papīrīts (online)</h1>
+    <div class="card">
+      <div class="row">
+        <input id="nameInput" type="text" placeholder="Tavs niks (piem. Bugats)" />
+        <button id="saveName">Saglabāt niku</button>
+        <span id="onlineTag" class="tag-online" style="display:none;">Online</span>
+      </div>
+      <p>Izvēlies gājienu. Ja kāds cits ir online — jūs automātiski tiksiet sapāroti. Uzvara = +1 punkts. TOP7 redzami pa labi.</p>
+      <div class="game-buttons">
+        <button data-move="akmens">🪨 Akmens</button>
+        <button data-move="šķēres">✂️ Šķēres</button>
+        <button data-move="papīrīts">📄 Papīrīts</button>
+      </div>
+      <div class="status" id="status">Gaida savienojumu ar serveri...</div>
+      <div class="status" id="lastResult"></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="leaderboard-title">🏆 TOP 7 spēlētāji</div>
+    <div id="leaderboard"></div>
+  </div>
+
+  <script>
+    // 👇 ŠITO NOMAINSI UZ TAVU RENDER ADRESI
+    // piemēram: const WS_URL = "wss://bugats-rps.onrender.com";
+    const WS_URL = "wss://bugats-rps.onrender.com"; // <- pamaini uz savu
+    let socket = null;
+    let currentName = "";
+
+    const statusEl = document.getElementById("status");
+    const lastResultEl = document.getElementById("lastResult");
+    const lbEl = document.getElementById("leaderboard");
+    const onlineTag = document.getElementById("onlineTag");
+    const nameInput = document.getElementById("nameInput");
+
+    function connect() {
+      socket = new WebSocket(WS_URL);
+
+      socket.addEventListener("open", () => {
+        statusEl.textContent = "Savienojums izveidots. Vari spēlēt.";
+        onlineTag.style.display = "inline-block";
+        // ja jau bija ievadīts vārds
+        const saved = localStorage.getItem("bugats-rps-name");
+        if (saved) {
+          currentName = saved;
+          nameInput.value = saved;
+          send({ type: "setName", name: saved });
+        }
+      });
+
+      socket.addEventListener("message", (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.type === "welcome") {
+          statusEl.textContent = "Sveiks, " + (data.name || "spēlētāj");
+        }
+        if (data.type === "waiting") {
+          statusEl.textContent = "Gaidām pretinieku...";
+        }
+        if (data.type === "result") {
+          const { result, yourMove, opponent, opponentMove } = data;
+          if (result === "win") {
+            lastResultEl.innerHTML = `✅ Tu uzvarēji pret <b>${opponent}</b>! (${yourMove} vs ${opponentMove})`;
+            lastResultEl.style.color = "#22c55e";
+          } else if (result === "lose") {
+            lastResultEl.innerHTML = `❌ Tu zaudēji pret <b>${opponent}</b>. (${yourMove} vs ${opponentMove})`;
+            lastResultEl.style.color = "#ef4444";
+          } else {
+            lastResultEl.innerHTML = `⚖️ Neizšķirts ar <b>${opponent}</b>. (${yourMove} vs ${opponentMove})`;
+            lastResultEl.style.color = "#ffffff";
+          }
+          statusEl.textContent = "Vari spēlēt vēlreiz.";
+        }
+        if (data.type === "leaderboard") {
+          renderLeaderboard(data.leaderboard || []);
+        }
+      });
+
+      socket.addEventListener("close", () => {
+        statusEl.textContent = "Savienojums zaudēts. Mēģinu atkārtoti...";
+        onlineTag.style.display = "none";
+        setTimeout(connect, 2000);
+      });
+
+      socket.addEventListener("error", () => {
+        statusEl.textContent = "Kļūda ar savienojumu.";
+        onlineTag.style.display = "none";
+      });
+    }
+
+    function send(obj) {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(obj));
+      }
+    }
+
+    function renderLeaderboard(items) {
+      lbEl.innerHTML = "";
+      if (items.length === 0) {
+        lbEl.innerHTML = "<p>Neviena spēlētāja vēl nav.</p>";
+        return;
+      }
+      items.forEach((item, idx) => {
+        const div = document.createElement("div");
+        div.className = "lb-item";
+        div.innerHTML = `<span>${idx+1}. ${item.name}</span><span>${item.score}</span>`;
+        lbEl.appendChild(div);
+      });
+    }
+
+    // pogas
+    document.querySelectorAll("[data-move]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const move = btn.getAttribute("data-move");
+        statusEl.textContent = "Nosūtīts gājiens: " + move + ". Gaidām pretinieku...";
+        send({ type: "play", move });
+      });
+    });
+
+    // vārda saglabāšana
+    document.getElementById("saveName").addEventListener("click", () => {
+      const val = nameInput.value.trim();
+      if (!val) return;
+      currentName = val;
+      localStorage.setItem("bugats-rps-name", val);
+      send({ type: "setName", name: val });
+      statusEl.textContent = "Niks saglabāts: " + val;
+    });
+
+    // start
+    connect();
+  </script>
+</body>
+</html>
