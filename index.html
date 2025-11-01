@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bugats – Akmens Šķēres Papīrīts (online)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: rgba(15, 23, 42, .5);
+      --accent: #38bdf8;
+      --win: #22c55e;
+      --lose: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #0f172a 0%, #020617 55%, #000 100%);
+      color: #e2e8f0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      gap: 1rem;
+      padding: 1rem;
+    }
+    #app {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      gap: 1rem;
+    }
+    .game {
+      flex: 1;
+      background: var(--panel);
+      border: 1px solid rgba(148,163,184,.1);
+      border-radius: 16px;
+      padding: 1rem;
+      backdrop-filter: blur(9px);
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+    }
+    .sidebar {
+      width: 280px;
+      background: rgba(2, 6, 23, 0.35);
+      border: 1px solid rgba(148,163,184,.12);
+      border-radius: 16px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+    }
+    h1 {
+      font-size: 1.15rem;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    #status {
+      font-size: .8rem;
+      color: #94a3b8;
+    }
+    #controls {
+      display: flex;
+      gap: .5rem;
+    }
+    button {
+      background: rgba(56, 189, 248, .1);
+      border: 1px solid rgba(56, 189, 248, .4);
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: .4rem .8rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+    #rps-arena {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      align-items: center;
+      margin-top: .75rem;
+      margin-bottom: .5rem;
+    }
+    .rps-card {
+      width: 120px;
+      height: 120px;
+      background: rgba(15, 23, 42, .2);
+      border: 1px solid rgba(148, 163, 184, .3);
+      border-radius: 15px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: .25rem;
+      font-size: 2.4rem;
+      transition: .25s;
+      position: relative;
+    }
+    .rps-name {
+      font-size: .75rem;
+      color: #94a3b8;
+      text-transform: none;
+    }
+    .rps-card.reveal {
+      transform: scale(1.05);
+      box-shadow: 0 15px 35px rgba(0,0,0,.25);
+    }
+    #rps-winner {
+      text-align: center;
+      font-weight: 600;
+      display: none;
+      margin-top: .4rem;
+    }
+    .moves {
+      display: flex;
+      gap: .4rem;
+      justify-content: center;
+    }
+    .move-btn {
+      background: rgba(15, 23, 42, .35);
+      border: 1px solid rgba(148, 163, 184, .3);
+      border-radius: 8px;
+      padding: .35rem .6rem;
+      cursor: pointer;
+      font-size: 1.5rem;
+      transition: .2s;
+    }
+    .move-btn:hover {
+      background: rgba(148, 163, 184, .12);
+    }
+    .card {
+      background: rgba(15, 23, 42, .35);
+      border: 1px solid rgba(148, 163, 184, .15);
+      border-radius: 12px;
+      padding: .45rem .5rem .35rem;
+    }
+    .lb-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: .75rem;
+      padding: .25rem .2rem;
+      border-radius: 6px;
+    }
+    .lb-item.me {
+      background: rgba(56,189,248,.08);
+    }
+    #nick-input {
+      width: 100%;
+      background: rgba(15,23,42,.3);
+      border: 1px solid rgba(148,163,184,.25);
+      border-radius: 8px;
+      padding: .25rem .35rem;
+      color: #e2e8f0;
+      margin-top: .25rem;
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2,6,23,.78);
+      z-index: 50;
+      flex-direction: column;
+      gap: .5rem;
+    }
+    #overlay p {
+      color: #e2e8f0;
+    }
+    @media (max-width: 950px) {
+      #app { flex-direction: column; }
+      .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; gap: .5rem; }
+      #rps-arena { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <h2>⏸ Spēle iesaldēta</h2>
+    <p id="overlay-text"></p>
+  </div>
+
+  <div id="app">
+    <div class="game">
+      <h1>Bugats RPS <span id="status">(gaida pretinieku)</span></h1>
+      <div id="rps-arena">
+        <div id="rps-p1" class="rps-card">
+          <div class="rps-name" id="rps-p1-name">Gaida...</div>
+          <div id="rps-p1-move">❔</div>
+          <small id="rps-p1-score" style="font-size:.6rem;color:#94a3b8;">0</small>
+        </div>
+        <div style="font-weight:700;">VS</div>
+        <div id="rps-p2" class="rps-card">
+          <div class="rps-name" id="rps-p2-name">Gaida...</div>
+          <div id="rps-p2-move">❔</div>
+          <small id="rps-p2-score" style="font-size:.6rem;color:#94a3b8;">0</small>
+        </div>
+      </div>
+      <div id="rps-winner"></div>
+
+      <div class="moves">
+        <div class="move-btn" data-move="rock">🪨</div>
+        <div class="move-btn" data-move="paper">📄</div>
+        <div class="move-btn" data-move="scissors">✂️</div>
+      </div>
+      <small style="text-align:center;color:#94a3b8;margin-top:.4rem;">Piemērs: pirmais līdz 2 uzvarām (best of 3)</small>
+    </div>
+
+    <div class="sidebar">
+      <div class="card">
+        <strong>Mans niks</strong>
+        <input id="nick-input" maxlength="20" />
+        <small id="nick-info" style="font-size:.7rem;color:#94a3b8;">Mainīt saprātīgi 😉</small>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong>TOP</strong>
+          <span id="online" style="font-size:.7rem;color:#94a3b8;">Online: 0</span>
+        </div>
+        <div id="leaderboard" style="display:flex;flex-direction:column;gap:.25rem;margin-top:.25rem;"></div>
+      </div>
+      <div class="card" style="flex:1;min-height:120px;">
+        <strong>Pēdējie mači</strong>
+        <div id="history" style="margin-top:.3rem;max-height:200px;overflow-y:auto;font-size:.7rem;display:flex;flex-direction:column;gap:.25rem;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // N O T E: nomaini uz savu Render WS adresi
+    const WS_URL = "wss://tavs-rps.onrender.com"; // vai ws://localhost:3001
+
+    const state = {
+      ws: null,
+      myId: Math.random().toString(36).slice(2,9),
+      myName: localStorage.getItem("rps_nick") || ("Spēlētājs-" + Math.floor(Math.random()*999)),
+      inMatch: false,
+      canMove: false,
+    };
+
+    const p1name = document.getElementById("rps-p1-name");
+    const p2name = document.getElementById("rps-p2-name");
+    const p1move = document.getElementById("rps-p1-move");
+    const p2move = document.getElementById("rps-p2-move");
+    const p1score = document.getElementById("rps-p1-score");
+    const p2score = document.getElementById("rps-p2-score");
+    const winnerEl = document.getElementById("rps-winner");
+    const statusEl = document.getElementById("status");
+    const nickInput = document.getElementById("nick-input");
+    const lbEl = document.getElementById("leaderboard");
+    const onlineEl = document.getElementById("online");
+    const historyEl = document.getElementById("history");
+    const overlay = document.getElementById("overlay");
+    const overlayText = document.getElementById("overlay-text");
+
+    nickInput.value = state.myName;
+
+    connect();
+
+    function connect() {
+      const ws = new WebSocket(WS_URL);
+      state.ws = ws;
+
+      ws.addEventListener("open", () => {
+        statusEl.textContent = "(savienots, gaida pretinieku)";
+        ws.send(JSON.stringify({ type: "hello", id: state.myId, name: state.myName }));
+      });
+
+      ws.addEventListener("message", (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch(e) { return; }
+        handleMsg(msg);
+      });
+
+      ws.addEventListener("close", () => {
+        statusEl.textContent = "(nav savienojuma)";
+        setTimeout(connect, 2000);
+      });
+    }
+
+    function handleMsg(msg) {
+      switch (msg.type) {
+        case "online":
+          onlineEl.textContent = "Online: " + msg.count;
+          break;
+        case "matchStart":
+          // matchStart: {p1:{id,name}, p2:{id,name}}
+          state.inMatch = true;
+          state.canMove = true;
+          p1name.textContent = msg.p1.name;
+          p2name.textContent = msg.p2.name;
+          p1move.textContent = "❔";
+          p2move.textContent = "❔";
+          p1score.textContent = msg.p1.score ?? 0;
+          p2score.textContent = msg.p2.score ?? 0;
+          winnerEl.style.display = "none";
+          statusEl.textContent = "(cīņa notiek)";
+          break;
+        case "rps-show":
+          // tikai iestata jautājuma zīmes
+          p1move.textContent = "❔";
+          p2move.textContent = "❔";
+          winnerEl.style.display = "none";
+          break;
+        case "rps-reveal":
+          revealMoves(msg);
+          break;
+        case "matchEnd":
+          winnerEl.textContent = "🥇 Uzvarēja: " + msg.winner;
+          winnerEl.style.display = "block";
+          state.inMatch = false;
+          state.canMove = false;
+          addHistory(msg);
+          statusEl.textContent = "(gaida jaunu pretinieku)";
+          break;
+        case "leaderboard":
+          renderLeaderboard(msg.list || []);
+          break;
+        case "blockedSelf":
+          // serveris neļāva spēlēt pret sevi
+          statusEl.textContent = "(gaida citu spēlētāju)";
+          break;
+        case "freeze":
+          showOverlay(msg.reason || "Pretinieks kavējas");
+          break;
+        case "unfreeze":
+          hideOverlay();
+          break;
+      }
+    }
+
+    function revealMoves(msg) {
+      const c1 = document.getElementById("rps-p1");
+      const c2 = document.getElementById("rps-p2");
+      p1move.textContent = emojiFromMove(msg.p1.move);
+      p2move.textContent = emojiFromMove(msg.p2.move);
+      p1score.textContent = msg.p1.score;
+      p2score.textContent = msg.p2.score;
+      c1.classList.add("reveal");
+      c2.classList.add("reveal");
+      if (msg.winner) {
+        winnerEl.textContent = "🎉 " + msg.winner + " uzvarēja!";
+      } else {
+        winnerEl.textContent = "⚖ Neizšķirts";
+      }
+      winnerEl.style.display = "block";
+      setTimeout(() => {
+        c1.classList.remove("reveal");
+        c2.classList.remove("reveal");
+      }, 1200);
+    }
+
+    function emojiFromMove(move) {
+      if (move === "rock") return "🪨";
+      if (move === "paper") return "📄";
+      if (move === "scissors") return "✂️";
+      return "❔";
+    }
+
+    // izvēles pogas
+    document.querySelectorAll(".move-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (!state.inMatch || !state.canMove) return;
+        const move = btn.dataset.move;
+        state.canMove = false; // vienā raundā tikai 1 gājiens
+        state.ws.send(JSON.stringify({
+          type: "move",
+          move,
+          id: state.myId
+        }));
+      });
+    });
+
+    // niks
+    nickInput.addEventListener("change", () => {
+      const v = nickInput.value.trim();
+      if (!v) return;
+      state.myName = v;
+      localStorage.setItem("rps_nick", v);
+      if (state.ws && state.ws.readyState === 1) {
+        state.ws.send(JSON.stringify({ type: "setName", name: v, id: state.myId }));
+      }
+    });
+
+    function renderLeaderboard(list) {
+      lbEl.innerHTML = "";
+      list.forEach(p => {
+        const row = document.createElement("div");
+        row.className = "lb-item" + (p.id === state.myId ? " me" : "");
+        row.innerHTML = `<span>${p.name}</span><span>${p.score}</span>`;
+        lbEl.appendChild(row);
+      });
+    }
+
+    function addHistory(msg) {
+      const item = document.createElement("div");
+      item.textContent = `${msg.p1} (${msg.p1score}) vs ${msg.p2} (${msg.p2score}) → ${msg.winner}`;
+      historyEl.prepend(item);
+      if (historyEl.children.length > 50) {
+        historyEl.removeChild(historyEl.lastChild);
+      }
+    }
+
+    function showOverlay(text) {
+      overlayText.textContent = text;
+      overlay.style.display = "flex";
+    }
+    function hideOverlay() {
+      overlay.style.display = "none";
+    }
+  </script>
+</body>
+</html>
