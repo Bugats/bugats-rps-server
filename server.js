@@ -48,15 +48,12 @@ wss.on("connection", (ws) => {
 
     switch (data.type) {
 
-      // ================= HELLO =================
+      // ===== HELLO =====
       case "hello": {
-        // saglabājam lietotāja pastāvīgo ID
         if (data.id) {
           const existing = playersById.get(data.id);
           if (existing && existing !== ws) {
-            // izņemam no rindas
             removeFromQueues(existing);
-            // ja bija mačā – paziņojam pretiniekam
             if (existing.matchId) {
               const m = matches.get(existing.matchId);
               if (m) {
@@ -86,13 +83,12 @@ wss.on("connection", (ws) => {
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
         broadcastLeaderboard();
 
-        // ieliekam rindā
         queuePlayer(ws);
         broadcastOnline();
         break;
       }
 
-      // ================= MAINĪT NIKU =================
+      // ===== SET NAME =====
       case "setName": {
         ws.name = sanitizeName(data.name || "Spēlētājs");
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
@@ -101,7 +97,7 @@ wss.on("connection", (ws) => {
         break;
       }
 
-      // ================= AVATĀRS =================
+      // ===== AVATAR =====
       case "avatarUpload": {
         if (typeof data.avatar === "string" &&
             data.avatar.startsWith("data:image/") &&
@@ -118,7 +114,7 @@ wss.on("connection", (ws) => {
         break;
       }
 
-      // ================= GATAVS =================
+      // ===== READY =====
       case "ready": {
         if (!ws.matchId) return;
         const match = matches.get(ws.matchId);
@@ -133,21 +129,20 @@ wss.on("connection", (ws) => {
           p2ready: match.p2ready
         });
 
-        // ja abi gatavi -> sākam pirmo raundu
         if (match.p1ready && match.p2ready) {
           startRoundWithCountdown(match);
         }
         break;
       }
 
-      // ================= GĀJIENS =================
+      // ===== MOVE =====
       case "move": {
         ws.afkStrikes = 0;
         handleMove(ws, data.move);
         break;
       }
 
-      // ================= PĒDĒJĀ PARTIJA =================
+      // ===== LAST GAME =====
       case "lastGame": {
         ws.leaveAfterMatch = true;
         send(ws, { type: "lastGameAck" });
@@ -161,7 +156,7 @@ wss.on("connection", (ws) => {
         break;
       }
 
-      // ================= MAINĪT ISTABU =================
+      // ===== CHANGE ROOM =====
       case "changeRoom": {
         const newRoom = String(data.room || "1");
         if (!["1","2","3"].includes(newRoom)) return;
@@ -177,7 +172,7 @@ wss.on("connection", (ws) => {
         break;
       }
 
-    } // switch
+    }
   });
 
   ws.on("close", () => {
@@ -206,7 +201,7 @@ wss.on("connection", (ws) => {
 });
 
 
-// ============ RINDAS ============
+// ===== RINDAS =====
 
 function queuePlayer(ws) {
   const room = ws.room || "1";
@@ -279,10 +274,10 @@ function createMatch(room, p1, p2) {
 }
 
 
-// ============ RAUNDS ============
+// ===== RAUNDS =====
 
 function startRoundWithCountdown(match) {
-  broadcastToMatch(match, { type: "roundPrepare", in: 10 }); // 10s kā tu teici
+  broadcastToMatch(match, { type: "roundPrepare", in: 10 });
   if (match.prepTimer) clearTimeout(match.prepTimer);
   match.prepTimer = setTimeout(() => {
     startRealRound(match);
@@ -375,7 +370,6 @@ function finishRound(match) {
       winner: winnerName
     });
 
-    // best of 3
     if (match.p1score >= 2 || match.p2score >= 2) {
       const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
       addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 1);
@@ -401,7 +395,6 @@ function finishRound(match) {
       if (!match.p2.leaveAfterMatch) queuePlayer(match.p2); else match.p2.leaveAfterMatch = false;
 
     } else {
-      // NAV beidzies -> sākam NĀKAMO raundu automātiski (bez "gatavs")
       startRoundWithCountdown(match);
     }
 
@@ -409,7 +402,7 @@ function finishRound(match) {
 }
 
 
-// ============ UTIL ============
+// ===== UTIL =====
 
 function randomMove() {
   const arr = ["rock", "paper", "scissors"];
