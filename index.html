@@ -65,7 +65,7 @@
       justify-content: center;
       gap: 1.8rem;
       align-items: center;
-      flex-wrap: wrap; /* desktopam var */
+      flex-wrap: wrap;
     }
     .player-box {
       width: 180px;
@@ -184,7 +184,6 @@
       z-index: 30;
     }
 
-    /* cīņas animācija */
     #fight-anim {
       position: absolute;
       top: 105px;
@@ -314,7 +313,10 @@
     <div class="right">
       <div class="card">
         <label class="label-sm">Mans niks</label>
-        <input id="nick" class="name-input" placeholder="Bugats" />
+        <div style="display:flex; gap:.4rem;">
+          <input id="nick" class="name-input" placeholder="Bugats" style="flex:1;" />
+          <button id="saveNick" class="btn" type="button">OK</button>
+        </div>
         <small style="opacity:.6;font-size:.7rem;">Mainīt saprātīgi 😉</small>
       </div>
 
@@ -356,7 +358,7 @@
   </div>
 
   <script>
-    // ŠEIT ieliec savu Render WS adresi
+    // MAINI ŠO UZ SAVU RENDER URL
     const WS_URL = "wss://bugats-rps.onrender.com";
 
     let ws;
@@ -398,11 +400,8 @@
     const fightLeft = document.getElementById("fight-left");
     const fightRight = document.getElementById("fight-right");
 
-    // countdown
     let countdownTimer = null;
     let countdownLeft = 0;
-
-    // vai šis klients IR nospiedis gatavs šim mačam
     let iAmReady = false;
 
     nickEl.value = myName;
@@ -446,7 +445,6 @@
           break;
 
         case "matchStart":
-          // sākas jauns mačs, vēl neesam gatavi
           iAmReady = false;
           readyBtn.disabled = false;
           mustReady.style.display = "block";
@@ -468,7 +466,6 @@
           p1move.textContent = "?";
           p2move.textContent = "?";
           winnerLine.textContent = "";
-          // vairs nav jāspiež “gatavs”
           mustReady.style.display = "none";
           break;
 
@@ -485,9 +482,8 @@
           roundInfo.textContent = `Mačs beidzies!`;
           p1round.textContent = "0";
           p2round.textContent = "0";
-          // nākamajam mačam atkal būs jāspiež gatavs
           iAmReady = false;
-          readyBtn.disabled = true; // kamēr serveris atkal nepieslēdz pie nākamā
+          readyBtn.disabled = true;
           mustReady.style.display = "none";
           break;
 
@@ -560,7 +556,7 @@
       p1round.textContent = msg.p1.score;
       p2round.textContent = msg.p2.score;
 
-      showFightAnimation(msg.p1.move, msg.p2.move, msg.winner);
+      showFightAnimation(msg.p1.move, msg.p2.move);
 
       if (msg.winner) {
         showMsg("🎉 " + msg.winner + " uzvarēja raundu!");
@@ -580,7 +576,7 @@
       return "?";
     }
 
-    function showFightAnimation(move1, move2, winnerName) {
+    function showFightAnimation(move1, move2) {
       fightLeft.style.backgroundImage = iconForMove(move1);
       fightRight.style.backgroundImage = iconForMove(move2);
       fightWrap.className = "fight-wrap";
@@ -599,7 +595,6 @@
       return "none";
     }
 
-    // pogas
     document.querySelectorAll(".move-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const mv = btn.dataset.move;
@@ -626,11 +621,23 @@
       }
     });
 
-    nickEl.addEventListener("change", () => {
+    function saveNickNow() {
       myName = nickEl.value.trim() || "Bugats";
       localStorage.setItem("rps_name", myName);
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "setName", name: myName }));
+      }
+      showMsg("Niks saglabāts ✅");
+    }
+
+    document.getElementById("saveNick").addEventListener("click", () => {
+      saveNickNow();
+    });
+
+    nickEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        saveNickNow();
+        nickEl.blur();
       }
     });
 
