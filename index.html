@@ -6,612 +6,668 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
-      --bg: #020617;
-      --panel: rgba(15, 23, 42, .5);
-      --accent: #38bdf8;
+      --bg: #0f172a;
+      --panel: rgba(15,23,42,.65);
+      --border: rgba(148,163,184,.25);
+      --text: #e2e8f0;
+      --accent: #22c55e;
+      --danger: #f43f5e;
+      --warn: #f97316;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      background: radial-gradient(circle at top, #0f172a 0%, #020617 55%, #000 100%);
-      color: #e2e8f0;
+      background: radial-gradient(circle at top, #0f172a 0%, #020617 60%);
+      color: var(--text);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
       min-height: 100vh;
-      display: flex;
-      gap: 1rem;
-      padding: 1rem;
     }
-    #app {
+    .wrap {
+      display: flex;
       width: 100%;
-      max-width: 1100px;
-      margin: 0 auto;
-      display: flex;
       gap: 1rem;
-    }
-    .game {
-      flex: 1;
-      background: rgba(15, 23, 42, .4);
-      border: 1px solid rgba(148, 163, 184, .1);
-      border-radius: 16px;
       padding: 1rem;
-      position: relative;
     }
-    .sidebar {
-      width: 290px;
-      background: rgba(2, 6, 23, 0.35);
-      border: 1px solid rgba(148,163,184,.12);
-      border-radius: 16px;
-      padding: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: .6rem;
-    }
-    h1 { margin: 0 0 .35rem 0; font-size: 1.05rem; }
-    #status { color: #94a3b8; font-size: .8rem; margin-left: .35rem; }
-
-    #rps-arena {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      align-items: center;
-      margin-top: .75rem;
-      margin-bottom: .5rem;
-    }
-    .rps-card {
-      width: 120px;
-      height: 120px;
-      background: rgba(15, 23, 42, .2);
-      border: 1px solid rgba(148, 163, 184, .3);
-      border-radius: 15px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      gap: .25rem;
-      font-size: 2.4rem;
-      transition: .25s;
+    .left {
+      flex: 1.4;
+      background: rgba(2,6,23,.4);
+      border: 1px solid rgba(148,163,184,.05);
+      border-radius: 20px;
+      padding: 1rem 1.25rem 1.5rem;
       position: relative;
       overflow: hidden;
     }
-    .rps-name { font-size: .75rem; color: #94a3b8; }
-    .rps-card.reveal { transform: scale(1.03); box-shadow: 0 15px 35px rgba(0,0,0,.25); }
-    .avatar {
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      width: 34px;
-      height: 34px;
-      border-radius: 9999px;
-      border: 1px solid rgba(148,163,184,.35);
-      background: rgba(15,23,42,.4);
+    .right {
+      width: 320px;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1rem;
-      overflow: hidden;
+      flex-direction: column;
+      gap: 1rem;
     }
-    .avatar img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    #rps-winner { text-align: center; font-weight: 600; display: none; margin-top: .4rem; }
-    .moves { display: flex; gap: .4rem; justify-content: center; }
-    .move-btn {
-      background: rgba(15, 23, 42, .35);
-      border: 1px solid rgba(148, 163, 184, .3);
-      border-radius: 8px;
-      padding: .35rem .6rem;
-      cursor: pointer;
-      font-size: 1.5rem;
-      transition: .2s;
-    }
-    .move-btn:hover { background: rgba(148, 163, 184, .12); }
     .card {
-      background: rgba(15, 23, 42, .35);
-      border: 1px solid rgba(148, 163, 184, .15);
-      border-radius: 12px;
-      padding: .45rem .5rem .35rem;
+      background: rgba(2,6,23,.4);
+      border: 1px solid rgba(148,163,184,.05);
+      border-radius: 16px;
+      padding: 1rem;
     }
-    #nick-input, #avatar-input {
-      width: 100%;
-      background: rgba(15,23,42,.3);
-      border: 1px solid rgba(148,163,184,.25);
-      border-radius: 8px;
-      padding: .25rem .35rem;
-      color: #e2e8f0;
+    h1 {
+      margin: 0 0 .5rem;
+      font-size: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .status {
+      font-size: .8rem;
+      opacity: .7;
+    }
+    .arena {
+      margin-top: .75rem;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      align-items: center;
+    }
+    .player-box {
+      width: 180px;
+      height: 200px;
+      border: 1px solid rgba(148,163,184,.3);
+      border-radius: 28px;
+      background: radial-gradient(circle at 40% 20%, rgba(148,163,184,.2), rgba(15,23,42,.12));
+      text-align: center;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: .25rem;
+      padding-top: .6rem;
+    }
+    .player-name {
+      font-weight: 600;
       margin-top: .25rem;
     }
-    .lb-item {
+    .player-avatar {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 44px;
+      height: 44px;
+      border-radius: 9999px;
+      border: 2px solid rgba(255,255,255,.35);
+      background: rgba(15,23,42,.4);
+      background-size: cover;
+      background-position: center;
+    }
+    .question {
+      font-size: 4.2rem;
+      line-height: 1;
+      margin-top: 1.15rem;
+    }
+    .score-small {
+      margin-top: .35rem;
+      font-size: .75rem;
+      opacity: .7;
+    }
+    .vs {
+      font-weight: 700;
+      font-size: 1.25rem;
+      opacity: .85;
+    }
+    .moves {
+      margin-top: 1.3rem;
+      display: flex;
+      gap: .85rem;
+      justify-content: center;
+    }
+    .move-btn {
+      width: 70px;
+      height: 70px;
+      border-radius: 1.2rem;
+      background: rgba(15,23,42,.4);
+      border: 1px solid rgba(148,163,184,.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: .15s;
+    }
+    .move-btn:hover {
+      background: rgba(148,163,184,.09);
+      transform: translateY(-2px);
+    }
+    .icon-move {
+      width: 42px;
+      height: 42px;
+      background: rgba(15,23,42,.55);
+      border: 1px solid rgba(148,163,184,.35);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+    .footer-text {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: .75rem;
+      opacity: .7;
+    }
+    .name-input {
+      width: 100%;
+      padding: .55rem .7rem;
+      border-radius: .7rem;
+      border: 1px solid rgba(148,163,184,.22);
+      background: rgba(15,23,42,.35);
+      color: var(--text);
+      outline: none;
+    }
+    .label-sm { font-size: .75rem; opacity: .65; margin-bottom: .35rem; display:block; }
+
+    /* online / leaderboard */
+    .toplist {
+      margin-top: .5rem;
+    }
+    .top-row {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      font-size: .75rem;
-      padding: .25rem .2rem;
-      border-radius: 6px;
-    }
-    .lb-item.me { background: rgba(56,189,248,.08); }
-    .rooms { display: flex; gap: .35rem; margin-top: .35rem; }
-    .room-btn {
-      flex: 1;
-      background: rgba(15, 23, 42, .25);
-      border: 1px solid rgba(148,163,184,.25);
-      border-radius: 6px;
-      text-align: center;
-      font-size: .7rem;
+      font-size: .78rem;
       padding: .25rem 0;
-      cursor: pointer;
+      border-bottom: 1px solid rgba(148,163,184,.05);
     }
-    .room-btn.active { border-color: #38bdf8; background: rgba(56,189,248,.08); }
-    #online-rooms { font-size: .68rem; color: #94a3b8; margin-top: .25rem; }
-    #last-btn {
-      width: 100%;
-      margin-top: .35rem;
-      background: rgba(220, 38, 38, .18);
-      border: 1px solid rgba(248, 113, 113, .35);
-      border-radius: 7px;
-      padding: .35rem 0;
-      text-align: center;
-      font-size: .7rem;
-      cursor: pointer;
-    }
-    #round-banner {
+    .top-row:last-child { border-bottom: none; }
+
+    /* paziņojumi */
+    #msg {
       position: absolute;
       top: 10px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(15,23,42,.85);
-      border: 1px solid rgba(148,163,184,.4);
+      background: rgba(15,23,42,.8);
+      border: 1px solid rgba(148,163,184,.25);
       border-radius: 9999px;
-      padding: 4px 14px 5px;
-      font-size: .7rem;
+      padding: .35rem .85rem;
+      font-size: .8rem;
       display: none;
+      z-index: 30;
     }
-    #ready-btn {
+
+    /* animācijas pārklājums */
+    #fight-anim {
+      position: absolute;
+      top: 105px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 260px;
+      height: 120px;
+      pointer-events: none;
       display: none;
-      margin: .5rem auto 0;
-      background: rgba(34,197,235,.16);
-      border: 1px solid rgba(125,211,252,.5);
-      border-radius: 9999px;
-      padding: .35rem .9rem .3rem;
-      font-size: .7rem;
+      z-index: 20;
+    }
+    .fight-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    .fight-icon {
+      position: absolute;
+      top: 20px;
+      width: 80px;
+      height: 80px;
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      filter: drop-shadow(0 4px 10px rgba(0,0,0,.5));
+    }
+    .fight-left { left: 0; }
+    .fight-right { right: 0; }
+
+    .fight-wrap.paper-over {
+      animation: paperOver 1.2s ease forwards;
+    }
+    @keyframes paperOver {
+      0% { }
+      40% { }
+      100% { }
+    }
+    .fight-wrap.rock-smash .fight-left,
+    .fight-wrap.rock-smash .fight-right {
+      animation: smash 1s ease;
+    }
+    @keyframes smash {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+    .fight-wrap.scissors-cut .fight-right {
+      animation: cut 1.1s ease;
+    }
+    @keyframes cut {
+      0% { transform: rotate(0deg); }
+      30% { transform: rotate(-25deg); }
+      60% { transform: rotate(12deg); }
+      100% { transform: rotate(0deg); }
+    }
+
+    .ready-hint {
+      text-align:center;
+      font-size:.72rem;
+      opacity:.7;
+      margin-top:.4rem;
+    }
+    .btn {
+      border: none;
+      background: rgba(34,197,94,.18);
+      color: #ecfdf3;
+      padding: .45rem .8rem;
+      border-radius: .6rem;
       cursor: pointer;
+      font-size:.7rem;
     }
-    #timers {
-      text-align: center;
-      font-size: .7rem;
-      color: #94a3b8;
-      margin-top: .3rem;
+    .btn-danger { background: rgba(244,63,94,.17); }
+
+    .smallflex {
+      display:flex;
+      gap:.4rem;
+      align-items:center;
     }
-    @media (max-width: 950px) {
-      #app { flex-direction: column; }
-      .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; }
-      .game { order: -1; }
+
+    @media (max-width: 980px){
+      body { display: block; }
+      .wrap { flex-direction: column; }
+      .right { width: 100%; }
+      .arena { flex-direction: column; }
+      .player-box { width: 70%; max-width: 280px; }
+      #fight-anim { top: 160px; }
     }
   </style>
 </head>
 <body>
-  <div id="app">
-    <div class="game">
-      <div id="round-banner">Raunds sāksies pēc 10s</div>
-      <h1>Bugats RPS <span id="status">(nav savienojuma)</span></h1>
-      <div id="rps-arena">
-        <div id="rps-p1" class="rps-card">
-          <div class="avatar" id="p1-avatar">🐺</div>
-          <div class="rps-name" id="rps-p1-name">Gaida...</div>
-          <div id="rps-p1-move">❔</div>
-          <small id="rps-p1-score" style="font-size:.6rem;color:#94a3b8;">0</small>
-        </div>
-        <div style="font-weight:700;">VS</div>
-        <div id="rps-p2" class="rps-card">
-          <div class="avatar" id="p2-avatar">🦅</div>
-          <div class="rps-name" id="rps-p2-name">Gaida...</div>
-          <div id="rps-p2-move">❔</div>
-          <small id="rps-p2-score" style="font-size:.6rem;color:#94a3b8;">0</small>
+  <div class="wrap">
+    <div class="left">
+      <h1>Bugats RPS <span id="status" class="status">(nav savienojuma)</span></h1>
+
+      <div id="fight-anim">
+        <div class="fight-wrap" id="fight-wrap">
+          <div class="fight-icon fight-left" id="fight-left"></div>
+          <div class="fight-icon fight-right" id="fight-right"></div>
         </div>
       </div>
-      <div id="rps-winner"></div>
-      <div id="timers"></div>
+
+      <div class="arena">
+        <div class="player-box" id="p1box">
+          <div class="player-avatar" id="avatar1"></div>
+          <div class="player-name" id="p1name">Gaida...</div>
+          <div class="question" id="p1move">?</div>
+          <div class="score-small">0</div>
+        </div>
+        <div class="vs" id="vslabel">VS</div>
+        <div class="player-box" id="p2box">
+          <div class="player-avatar" id="avatar2"></div>
+          <div class="player-name" id="p2name">Gaida...</div>
+          <div class="question" id="p2move">?</div>
+          <div class="score-small">0</div>
+        </div>
+      </div>
 
       <div class="moves">
-        <div class="move-btn" data-move="rock">🪨</div>
-        <div class="move-btn" data-move="paper">📄</div>
-        <div class="move-btn" data-move="scissors">✂️</div>
+        <div class="move-btn" data-move="rock">
+          <div class="icon-move">🗿</div>
+        </div>
+        <div class="move-btn" data-move="paper">
+          <div class="icon-move">📄</div>
+        </div>
+        <div class="move-btn" data-move="scissors">
+          <div class="icon-move">✂️</div>
+        </div>
       </div>
 
-      <button id="ready-btn">✅ Gatavs</button>
+      <div class="ready-hint">
+        <button id="readyBtn" class="btn">Es esmu gatavs ✅</button>
+        <button id="lastBtn" class="btn btn-danger">Pēdējā partija</button>
+        <span id="roundInfo"></span>
+      </div>
 
-      <small style="text-align:center;color:#94a3b8;margin-top:.4rem;display:block;">Piemērs: pirmais līdz 2 uzvarām (best of 3)</small>
+      <div class="footer-text" id="footerText">
+        Piemērs: pirmais līdz 2 uzvarām (best of 3)
+      </div>
+
+      <div id="msg"></div>
     </div>
 
-    <div class="sidebar">
+    <div class="right">
       <div class="card">
-        <strong>Mans niks</strong>
-        <input id="nick-input" maxlength="20" />
-        <small style="font-size:.7rem;color:#94a3b8;">Mainīt saprātīgi 😉</small>
-        <strong style="margin-top:.4rem;display:block;">Avatars</strong>
-        <input id="avatar-input" type="file" accept="image/*" />
+        <label class="label-sm">Mans niks</label>
+        <input id="nick" class="name-input" placeholder="Bugats" />
+        <small style="opacity:.6;font-size:.7rem;">Mainīt saprātīgi 😉 (serveris atceras)</small>
       </div>
 
       <div class="card">
-        <strong>Istaba</strong>
-        <div class="rooms">
-          <div class="room-btn" data-room="1">Room 1</div>
-          <div class="room-btn" data-room="2">Room 2</div>
-          <div class="room-btn" data-room="3">Room 3</div>
+        <div class="smallflex">
+          <div style="flex:1;">TOP</div>
+          <div id="onlineInfo" style="font-size:.7rem;opacity:.6;">Online: 0</div>
         </div>
-        <div id="online-rooms">1:0 · 2:0 · 3:0</div>
+        <div class="toplist" id="toplist"></div>
       </div>
 
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <strong>TOP</strong>
-          <span id="online" style="font-size:.7rem;color:#94a3b8;">Online: 0</span>
+        <div class="smallflex" style="margin-bottom:.5rem;">
+          <div style="flex:1;">Istabas</div>
+          <select id="roomSel">
+            <option value="1">Istaba 1</option>
+            <option value="2">Istaba 2</option>
+            <option value="3">Istaba 3</option>
+          </select>
         </div>
-        <div id="leaderboard" style="display:flex;flex-direction:column;gap:.25rem;margin-top:.25rem;"></div>
+        <label class="label-sm">Avatārs (bildīte)</label>
+        <input type="file" id="avatarFile" accept="image/*" />
       </div>
 
-      <div class="card" style="flex:1;min-height:120px;">
-        <strong>Pēdējie mači</strong>
-        <div id="history" style="margin-top:.3rem;max-height:230px;overflow-y:auto;font-size:.7rem;display:flex;flex-direction:column;gap:.25rem;"></div>
-        <div id="last-btn">Pēdējā partija 🎯</div>
+      <div class="card">
+        <div style="font-size:.75rem;opacity:.5;">Pēdējie mači (tikai lokāli)</div>
+        <div id="logs" style="font-size:.72rem;margin-top:.4rem;max-height:140px;overflow:auto;"></div>
       </div>
     </div>
   </div>
 
   <script>
+    // IMPORTANT: nomaini uz savu Render WS adresi
     const WS_URL = "wss://bugats-rps.onrender.com";
 
-    const state = {
-      ws: null,
-      myId: localStorage.getItem("rps_id") || Math.random().toString(36).slice(2,9),
-      myName: localStorage.getItem("rps_nick") || ("Spēlētājs-" + Math.floor(Math.random()*999)),
-      room: localStorage.getItem("rps_room") || "1",
-      inMatch: false,
-      canMove: false,
-      preparing: false,
-      avatar: localStorage.getItem("rps_avatar") || null
-    };
-    localStorage.setItem("rps_id", state.myId);
+    let ws;
+    let myId = localStorage.getItem("rps_id") || null;
+    let myName = localStorage.getItem("rps_name") || "Bugats";
+    let myRoom = localStorage.getItem("rps_room") || "1";
+    let myAvatar = localStorage.getItem("rps_avatar") || null;
 
-    // elementi
-    const p1name = document.getElementById("rps-p1-name");
-    const p2name = document.getElementById("rps-p2-name");
-    const p1move = document.getElementById("rps-p1-move");
-    const p2move = document.getElementById("rps-p2-move");
-    const p1score = document.getElementById("rps-p1-score");
-    const p2score = document.getElementById("rps-p2-score");
-    const p1avatar = document.getElementById("p1-avatar");
-    const p2avatar = document.getElementById("p2-avatar");
     const statusEl = document.getElementById("status");
-    const winnerEl = document.getElementById("rps-winner");
-    const nickInput = document.getElementById("nick-input");
-    const avatarInput = document.getElementById("avatar-input");
-    const lbEl = document.getElementById("leaderboard");
-    const onlineEl = document.getElementById("online");
-    const historyEl = document.getElementById("history");
-    const onlineRoomsEl = document.getElementById("online-rooms");
-    const lastBtn = document.getElementById("last-btn");
-    const roomBtns = document.querySelectorAll(".room-btn");
-    const roundBanner = document.getElementById("round-banner");
-    const readyBtn = document.getElementById("ready-btn");
-    const timersEl = document.getElementById("timers");
+    const nickEl = document.getElementById("nick");
+    const toplistEl = document.getElementById("toplist");
+    const onlineInfoEl = document.getElementById("onlineInfo");
+    const roomSel = document.getElementById("roomSel");
+    const avatarFile = document.getElementById("avatarFile");
 
-    nickInput.value = state.myName;
-    setActiveRoomBtn();
-    connect();
+    const p1name = document.getElementById("p1name");
+    const p2name = document.getElementById("p2name");
+    const p1move = document.getElementById("p1move");
+    const p2move = document.getElementById("p2move");
+    const p1box = document.getElementById("p1box");
+    const p2box = document.getElementById("p2box");
+    const roundInfo = document.getElementById("roundInfo");
+    const readyBtn = document.getElementById("readyBtn");
+    const lastBtn = document.getElementById("lastBtn");
+    const logs = document.getElementById("logs");
+    const avatar1 = document.getElementById("avatar1");
+    const avatar2 = document.getElementById("avatar2");
+    const msg = document.getElementById("msg");
+
+    const fightBox = document.getElementById("fight-anim");
+    const fightWrap = document.getElementById("fight-wrap");
+    const fightLeft = document.getElementById("fight-left");
+    const fightRight = document.getElementById("fight-right");
+
+    nickEl.value = myName;
+    roomSel.value = myRoom;
 
     function connect() {
-      const ws = new WebSocket(WS_URL);
-      state.ws = ws;
-
-      ws.addEventListener("open", () => {
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
         statusEl.textContent = "(savienots, gaida pretinieku)";
         ws.send(JSON.stringify({
           type: "hello",
-          id: state.myId,
-          name: state.myName,
-          room: state.room,
-          avatar: state.avatar
+          id: myId,
+          name: myName,
+          room: myRoom,
+          avatar: myAvatar
         }));
-      });
-
-      ws.addEventListener("message", (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch(e) { return; }
-        handleMsg(msg);
-      });
-
-      ws.addEventListener("close", () => {
-        statusEl.textContent = "(nav savienojuma)";
-        setTimeout(connect, 2000);
-      });
+      };
+      ws.onclose = () => {
+        statusEl.textContent = "(atvienots)";
+        setTimeout(connect, 2500);
+      };
+      ws.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        handleMsg(data);
+      };
     }
+    connect();
 
-    function handleMsg(msg) {
-      switch (msg.type) {
+    function handleMsg(data) {
+      switch (data.type) {
         case "online":
-          onlineEl.textContent = "Online: " + (msg.total || 0);
-          if (msg.rooms) {
-            onlineRoomsEl.textContent = `1:${msg.rooms["1"]||0} · 2:${msg.rooms["2"]||0} · 3:${msg.rooms["3"]||0}`;
-          }
+          onlineInfoEl.textContent = `Online: ${data.total} | 1:${data.rooms["1"]} 2:${data.rooms["2"]} 3:${data.rooms["3"]}`;
           break;
 
         case "leaderboard":
-          renderLeaderboard(msg.list || []);
+          renderTop(data.list);
           break;
 
         case "waiting":
-          statusEl.textContent = "(savienots, gaida pretinieku)";
-          readyBtn.style.display = "none";
+          showMsg("Gaida pretinieku istabā " + data.room);
+          p1name.textContent = "Gaida...";
+          p2name.textContent = "Gaida...";
+          p1move.textContent = "?";
+          p2move.textContent = "?";
           break;
 
         case "matchStart":
-          state.inMatch = true;
-          state.canMove = false;
-          state.preparing = false;
-          p1name.textContent = msg.p1.name;
-          p2name.textContent = msg.p2.name;
-          p1move.textContent = "❔";
-          p2move.textContent = "❔";
-          p1score.textContent = msg.p1.score ?? 0;
-          p2score.textContent = msg.p2.score ?? 0;
-          setAvatar(p1avatar, msg.p1.avatar, msg.p1.id);
-          setAvatar(p2avatar, msg.p2.avatar, msg.p2.id);
-          winnerEl.style.display = "none";
-          statusEl.textContent = "(mačs izveidots, jāspiež Gatavs)";
-          readyBtn.style.display = "inline-block";
-          timersEl.textContent = "";
+          showMsg("Atrada pretinieku istabā " + data.room);
+          setP1(data.p1);
+          setP2(data.p2);
+          roundInfo.textContent = "Abiem jāspiež 'Gatavs'";
           break;
 
         case "readyState":
-          // varētu parādīt kurš jau gatavs, bet šobrīd tikai info
+          roundInfo.textContent = `Gatavs: ${data.p1ready ? "P1" : ""} ${data.p2ready ? "P2" : ""}`;
           break;
 
         case "roundPrepare":
-          state.preparing = true;
-          readyBtn.style.display = "none";
-          showRoundBanner(`Raunds sāksies pēc ${msg.in}s`);
-          startCountdown(msg.in, "Sagatavošanās");
+          roundInfo.textContent = "Raunds sākas pēc " + data.in + " s";
           break;
 
         case "roundStart":
-          state.preparing = false;
-          state.canMove = true;
-          showRoundBanner(`Raunds sākts (15s)`);
-          startCountdown(msg.duration, "Raunds");
+          roundInfo.textContent = "Cīņa! (15 s)";
+          p1move.textContent = "?";
+          p2move.textContent = "?";
           break;
 
         case "rps-show":
-          p1move.textContent = "❔";
-          p2move.textContent = "❔";
-          winnerEl.style.display = "none";
+          // var ielikt "show" animāciju, bet pietiek arī te
           break;
 
         case "rps-reveal":
-          revealMoves(msg);
+          revealMoves(data);
           break;
 
         case "needReadyAgain":
-          readyBtn.style.display = "inline-block";
-          timersEl.textContent = "Nospied ✅ Gatavs lai turpinātu maču.";
+          roundInfo.textContent = "Spied 'Gatavs' nākamajam raundam";
           break;
 
         case "matchEnd":
-          startMatchCountdown(msg);
-          state.inMatch = false;
-          state.canMove = false;
-          addHistory(msg);
+          addLog(`Uzvarēja ${data.winner} (${data.p1score}:${data.p2score})`);
+          roundInfo.textContent = `Mačs beidzies! Jauns meklēsies pēc 15s`;
           break;
 
         case "opponentLeft":
-          statusEl.textContent = "(pretinieks aizgāja, gaida jaunu)";
+          showMsg("Pretinieks izgāja. Meklējam jaunu…");
           p2name.textContent = "Gaida...";
-          p2move.textContent = "❔";
-          p2score.textContent = "0";
-          state.inMatch = false;
-          state.canMove = false;
-          readyBtn.style.display = "none";
-          timersEl.textContent = "";
+          p2move.textContent = "?";
           break;
 
         case "opponentLastGame":
-          timersEl.textContent = `⚠ ${msg.name} spēlē pēdējo partiju`;
-          break;
-
-        case "opponentAvatar":
-          // uzrādām pretinieka avataru
-          setAvatar(p2avatar, msg.avatar, "opponent");
-          break;
-
-        case "lastGameAck":
-          statusEl.textContent = "(pēdējā partija aktivizēta)";
+          showMsg(`${data.name} spēlē pēdējo partiju`);
           break;
 
         case "blockedSelf":
-          statusEl.textContent = "(gaida citu spēlētāju)";
+          showMsg("Nevar spēlēt ar sevi 😎");
           break;
 
         case "kicked":
-          alert("Tevi izmeta: " + (msg.reason || "AFK"));
+          showMsg("Izmests: " + data.reason);
+          break;
+
+        case "opponentAvatar":
+          avatar2.style.backgroundImage = `url(${data.avatar})`;
           break;
 
         case "error":
-          alert(msg.message);
+          showMsg(data.message);
           break;
+      }
+    }
+
+    function setP1(p) {
+      p1name.textContent = p.name;
+      p1move.textContent = "?";
+      if (p.avatar) {
+        avatar1.style.backgroundImage = `url(${p.avatar})`;
+      } else {
+        avatar1.style.backgroundImage = "";
+      }
+    }
+    function setP2(p) {
+      p2name.textContent = p.name;
+      p2move.textContent = "?";
+      if (p.avatar) {
+        avatar2.style.backgroundImage = `url(${p.avatar})`;
+      } else {
+        avatar2.style.backgroundImage = "";
       }
     }
 
     function revealMoves(msg) {
-      const c1 = document.getElementById("rps-p1");
-      const c2 = document.getElementById("rps-p2");
       p1move.textContent = emojiFromMove(msg.p1.move);
       p2move.textContent = emojiFromMove(msg.p2.move);
-      p1score.textContent = msg.p1.score;
-      p2score.textContent = msg.p2.score;
-      c1.classList.add("reveal");
-      c2.classList.add("reveal");
+
+      // ANIMĀCIJA
+      showFightAnimation(msg.p1.move, msg.p2.move, msg.winner);
 
       if (msg.winner) {
-        winnerEl.textContent = "🎉 " + msg.winner + " uzvarēja!";
+        showMsg("🎉 " + msg.winner + " uzvarēja raundu!");
       } else {
-        winnerEl.textContent = "⚖ Neizšķirts";
+        showMsg("⚖ Neizšķirts");
       }
-      winnerEl.style.display = "block";
+    }
 
+    function emojiFromMove(m) {
+      if (m === "rock") return "🗿";
+      if (m === "paper") return "📄";
+      if (m === "scissors") return "✂️";
+      return "?";
+    }
+
+    // animācija
+    function showFightAnimation(move1, move2, winnerName) {
+      fightLeft.style.backgroundImage = iconForMove(move1);
+      fightRight.style.backgroundImage = iconForMove(move2);
+      fightWrap.className = "fight-wrap";
+
+      if (move1 === move2) {
+        // neizšķirts
+      } else if (move1 === "paper" && move2 === "rock" || move2 === "paper" && move1 === "rock") {
+        fightWrap.classList.add("paper-over");
+      } else if (move1 === "rock" && move2 === "scissors" || move2 === "rock" && move1 === "scissors") {
+        fightWrap.classList.add("rock-smash");
+      } else if (move1 === "scissors" && move2 === "paper" || move2 === "scissors" && move1 === "paper") {
+        fightWrap.classList.add("scissors-cut");
+      }
+
+      fightBox.style.display = "block";
       setTimeout(() => {
-        c1.classList.remove("reveal");
-        c2.classList.remove("reveal");
+        fightBox.style.display = "none";
+        fightWrap.className = "fight-wrap";
       }, 1200);
     }
 
-    function startMatchCountdown(msg) {
-      let left = msg.countdown || 15;
-      function tick() {
-        winnerEl.textContent = `🥇 Uzvarēja: ${msg.winner} · jauns mačs pēc ${left}s`;
-        winnerEl.style.display = "block";
-        left--;
-        if (left >= 0) {
-          setTimeout(tick, 1000);
-        } else {
-          winnerEl.style.display = "none";
-        }
-      }
-      tick();
-      statusEl.textContent = "(gaida jaunu pretinieku)";
-      timersEl.textContent = "";
+    function iconForMove(move) {
+      if (move === "rock") return "url('https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f5ff.svg')";
+      if (move === "paper") return "url('https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f4c4.svg')";
+      if (move === "scissors") return "url('https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/2702.svg')";
+      return "none";
     }
 
-    function emojiFromMove(move) {
-      if (move === "rock") return "🪨";
-      if (move === "paper") return "📄";
-      if (move === "scissors") return "✂️";
-      return "❔";
-    }
-
+    // pogas
     document.querySelectorAll(".move-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        if (!state.inMatch || !state.canMove) return;
-        const move = btn.dataset.move;
-        state.canMove = false;
-        state.ws.send(JSON.stringify({
-          type: "move",
-          move,
-          id: state.myId
-        }));
+        const mv = btn.dataset.move;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "move", move: mv }));
+        }
       });
     });
 
     readyBtn.addEventListener("click", () => {
-      if (state.ws && state.ws.readyState === 1) {
-        state.ws.send(JSON.stringify({ type: "ready" }));
-        readyBtn.style.display = "none";
-        timersEl.textContent = "Gaidām otru spēlētāju...";
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ready" }));
       }
     });
 
-    nickInput.addEventListener("change", () => {
-      const v = nickInput.value.trim();
-      if (!v) return;
-      state.myName = v;
-      localStorage.setItem("rps_nick", v);
-      if (state.ws && state.ws.readyState === 1) {
-        state.ws.send(JSON.stringify({ type: "setName", name: v, id: state.myId }));
+    lastBtn.addEventListener("click", () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "lastGame" }));
       }
     });
 
-    avatarInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
+    nickEl.addEventListener("change", () => {
+      myName = nickEl.value.trim() || "Bugats";
+      localStorage.setItem("rps_name", myName);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "setName", name: myName }));
+      }
+    });
+
+    roomSel.addEventListener("change", () => {
+      myRoom = roomSel.value;
+      localStorage.setItem("rps_room", myRoom);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "changeRoom", room: myRoom }));
+      }
+    });
+
+    avatarFile.addEventListener("change", (ev) => {
+      const file = ev.target.files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
-        const dataUrl = reader.result;
-        state.avatar = dataUrl;
-        localStorage.setItem("rps_avatar", dataUrl);
-        // ja pašlaik esmu p1 – parādu sev
-        setAvatar(p1avatar, dataUrl, state.myId);
-        if (state.ws && state.ws.readyState === 1) {
-          state.ws.send(JSON.stringify({ type: "avatarUpload", avatar: dataUrl }));
+        const base = reader.result;
+        myAvatar = base;
+        localStorage.setItem("rps_avatar", base);
+        avatar1.style.backgroundImage = `url(${base})`;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "avatarUpload", avatar: base }));
         }
       };
       reader.readAsDataURL(file);
     });
 
-    lastBtn.addEventListener("click", () => {
-      if (state.ws && state.ws.readyState === 1) {
-        state.ws.send(JSON.stringify({ type: "lastGame" }));
-      }
-    });
-
-    roomBtns.forEach(btn => {
-      btn.addEventListener("click", () => {
-        const r = btn.dataset.room;
-        if (r === state.room) return;
-        state.room = r;
-        localStorage.setItem("rps_room", r);
-        setActiveRoomBtn();
-        if (state.ws && state.ws.readyState === 1) {
-          state.ws.send(JSON.stringify({ type: "changeRoom", room: r }));
-          statusEl.textContent = "(maina istabu...)";
+    function renderTop(list) {
+      toplistEl.innerHTML = "";
+      list.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "top-row";
+        div.innerHTML = `<span>${item.name}</span><span>${item.score}</span>`;
+        toplistEl.appendChild(div);
+        if (!myId) {
+          // iedodam pirmo ID
+          myId = item.id;
+          localStorage.setItem("rps_id", myId);
         }
       });
-    });
-
-    function setActiveRoomBtn() {
-      roomBtns.forEach(b => b.classList.toggle("active", b.dataset.room === state.room));
     }
 
-    function renderLeaderboard(list) {
-      lbEl.innerHTML = "";
-      list.forEach(p => {
-        const row = document.createElement("div");
-        row.className = "lb-item" + (p.id === state.myId ? " me" : "");
-        row.innerHTML = `<span>${p.name}</span><span>${p.score}</span>`;
-        lbEl.appendChild(row);
-      });
+    function addLog(text) {
+      const d = document.createElement("div");
+      d.textContent = text;
+      logs.prepend(d);
     }
 
-    function addHistory(msg) {
-      const item = document.createElement("div");
-      item.textContent = `${msg.p1} (${msg.p1score}) vs ${msg.p2} (${msg.p2score}) → ${msg.winner}`;
-      historyEl.prepend(item);
-      if (historyEl.children.length > 50) {
-        historyEl.removeChild(historyEl.lastChild);
-      }
-    }
-
-    function showRoundBanner(text) {
-      roundBanner.textContent = text;
-      roundBanner.style.display = "block";
-      setTimeout(() => {
-        roundBanner.style.display = "none";
-      }, 1700);
-    }
-
-    function startCountdown(sec, label) {
-      let left = sec;
-      function tick() {
-        timersEl.textContent = `${label}: ${left}s`;
-        left--;
-        if (left >= 0) {
-          setTimeout(tick, 1000);
-        }
-      }
-      tick();
-    }
-
-    function setAvatar(el, dataUrl, id) {
-      if (dataUrl) {
-        el.innerHTML = `<img src="${dataUrl}">`;
-      } else {
-        // fallback uz emo
-        const list = ["🐺","🦅","🐉","🐗","🐻","🐯","🦊","🐍","🦂","🐲","🦁","🦜"];
-        let sum = 0;
-        const str = id || "u";
-        for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
-        el.textContent = list[sum % list.length];
-      }
+    function showMsg(t) {
+      msg.textContent = t;
+      msg.style.display = "block";
+      clearTimeout(showMsg._t);
+      showMsg._t = setTimeout(() => {
+        msg.style.display = "none";
+      }, 2500);
     }
   </script>
 </body>
