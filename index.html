@@ -353,6 +353,8 @@
       <div class="card">
         <div style="font-size:.75rem;opacity:.5;">Pēdējie mači</div>
         <div id="logs" style="font-size:.72rem;margin-top:.4rem;"></div>
+        <div style="margin-top:.5rem;font-size:.72rem;opacity:.55;">Spēlētāju statistika:</div>
+        <div id="statsBox" style="font-size:.7rem;margin-top:.25rem;line-height:1.25;"></div>
       </div>
     </div>
   </div>
@@ -390,6 +392,7 @@
     const msg = document.getElementById("msg");
     const winnerLine = document.getElementById("winnerLine");
     const mustReady = document.getElementById("mustReady");
+    const statsBox = document.getElementById("statsBox");
 
     const q1 = document.getElementById("q1");
     const q2 = document.getElementById("q2");
@@ -455,6 +458,7 @@
           p2round.textContent = data.p2.score || "0";
           roundInfo.textContent = "Spied 'Gatavs'";
           winnerLine.textContent = "";
+          statsBox.textContent = "";
           break;
 
         case "readyState":
@@ -501,6 +505,10 @@
 
         case "opponentAvatar":
           avatar2.style.backgroundImage = `url(${data.avatar})`;
+          break;
+
+        case "playerStats":
+          renderStats(data.players);
           break;
 
         case "error":
@@ -680,6 +688,17 @@
           localStorage.setItem("rps_id", myId);
         }
       });
+    }
+
+    function renderStats(players) {
+      if (!players || !players.length) {
+        statsBox.textContent = "";
+        return;
+      }
+      // divi spēlētāji
+      statsBox.innerHTML = players.map(p => {
+        return `<div><strong>${p.name}</strong>: ${p.wins}W / ${p.loses}L, mači: ${p.matches}, streak: ${p.streak} (best ${p.bestStreak})</div>`;
+      }).join("");
     }
 
     function addLog(text) {
