@@ -1,8 +1,7 @@
 // server.js
 // Bugats RPS — 3 rooms, best of 3, READY sistēma,
-// 10s sagatavošanās + 15s raunds, pēdējā partija paziņojums pretiniekam,
-// avataru sūtīšana caur WS, AFK auto-kick
-// + JAUNS: tikai 1 aktīvs savienojums uz 1 spēlētāja ID (anti-refresh juceklis)
+// 5s sagatavošanās + 15s raunds, “pēdējā partija”, avatāri,
+// AFK auto-kick, anti-refresh (viens savienojums uz 1 ID)
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -10,8 +9,7 @@ const WebSocket = require("ws");
 const PORT = process.env.PORT || 3001;
 
 const clients = new Set();
-
-// jaunais: lai zinām, kurš ID jau ir online
+// lai zinām, kurš ID jau ir online
 const playersById = new Map();
 
 // rindas pa istabām
@@ -35,7 +33,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (ws) => {
-  // pagaidu ID, īstais atnāks ar "hello"
+  // pagaidu ID
   ws.id = Math.random().toString(36).slice(2, 9);
   ws.name = "Spēlētājs";
   ws.room = "1";
@@ -54,17 +52,15 @@ wss.on("connection", (ws) => {
     switch (data.type) {
       // ================= HELLO =================
       case "hello": {
-        // ja atnāk ar saglabātu ID no localStorage
         if (data.id) {
           const newId = data.id;
-          // paskatāmies – vai nav jau tāds spēlētājs online
           const existing = playersById.get(newId);
           if (existing && existing !== ws) {
-            // 1) ja vecais bija rindā – izmetam no rindas
+            // ja vecais bija rindā
             if (waiting[existing.room] === existing) {
               waiting[existing.room] = null;
             }
-            // 2) ja vecais bija mačā – pretiniekam paziņojam, ka tas “pazuda”
+            // ja vecais bija mačā
             if (existing.matchId) {
               const oldMatch = matches.get(existing.matchId);
               if (oldMatch) {
@@ -72,7 +68,6 @@ wss.on("connection", (ws) => {
                 send(other, { type: "opponentLeft" });
                 other.matchId = null;
                 matches.delete(oldMatch.id);
-                // otru ieliekam rindā atpakaļ
                 if (!other.leaveAfterMatch) {
                   findMatch(other);
                 } else {
@@ -80,7 +75,6 @@ wss.on("connection", (ws) => {
                 }
               }
             }
-            // 3) veco aizveram
             try { existing.close(); } catch (e) {}
           }
 
@@ -143,6 +137,7 @@ wss.on("connection", (ws) => {
           p2ready: match.p2ready
         });
 
+        // abi gatavi → sākam
         if (match.p1ready && match.p2ready) {
           startRoundWithCountdown(match);
         }
@@ -193,7 +188,6 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     clients.delete(ws);
 
-    // ja tieši šim ID mēs bijām reģistrējuši savienojumu – izņemam
     if (playersById.get(ws.id) === ws) {
       playersById.delete(ws.id);
     }
@@ -275,12 +269,13 @@ function findMatch(ws) {
   }
 }
 
+// 5 sekundes sagatavošanās
 function startRoundWithCountdown(match) {
-  broadcastToMatch(match, { type: "roundPrepare", in: 10 });
+  broadcastToMatch(match, { type: "roundPrepare", in: 5 });
   if (match.prepTimer) clearTimeout(match.prepTimer);
   match.prepTimer = setTimeout(() => {
     startRealRound(match);
-  }, 10000);
+  }, 5000);
 }
 
 function startRealRound(match) {
@@ -374,7 +369,7 @@ function finishRound(match) {
       winner: winnerName
     });
 
-    // best of 3 pabeigts?
+    // best of 3
     if (match.p1score >= 2 || match.p2score >= 2) {
       const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
 
