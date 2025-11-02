@@ -1,7 +1,9 @@
 // server.js
 // Bugats RPS — 3 istabas ar rindām, best-of-3, "Gatavs" tikai mača sākumā,
 // 10 s prepare + 15 s cīņa, avatars, pēdējā partija, AFK, nevar spēlēt ar sevi,
-// + A variants: statistika RAMā (wins, loses, matches, streak, bestStreak)
+// A variants: statistika RAMā (wins, loses, matches, streak, bestStreak)
+// + streamer view: broadcast uzvaras uz istabu, "dienas karalis",
+// + auto-kick ja 15s laikā nav gatavs.
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -11,13 +13,14 @@ const PORT = process.env.PORT || 3001;
 const clients = new Set();
 const playersById = new Map();
 
-// rindas
+// rindas (pa istabām)
 const waiting = {
   "1": [],
   "2": [],
   "3": [],
 };
 
+// mači pēc id
 const matches = new Map();
 
 // leaderboard (tavi “lielie” punkti)
@@ -26,6 +29,10 @@ const leaderboard = new Map();
 // A variants — statistika RAMā
 // struktūra: { id, name, wins, loses, matches, streak, bestStreak }
 const playerStats = new Map();
+
+// “Dienas” uzvaras RAMā
+const dailyWins = new Map(); // id -> winsToday
+let todayKing = null; // { id, name, wins }
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -46,6 +53,10 @@ wss.on("connection", (ws) => {
   clients.add(ws);
   broadcastOnline();
   broadcastQueues();
+  // ja jau ir dienas karalis – pasakām jaunpienācējam
+  if (todayKing) {
+    send(ws, { type: "dailyKing", king: todayKing });
+  }
 
   ws.on("message", (raw) => {
     let data;
@@ -86,7 +97,7 @@ wss.on("connection", (ws) => {
           }
         }
 
-        // izveidojam / sinhronizējam statistiku
+        // sinhronizējam statistiku
         getPlayerStats(ws.id, ws.name);
 
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
@@ -101,7 +112,7 @@ wss.on("connection", (ws) => {
       case "setName": {
         ws.name = sanitizeName(data.name || "Spēlētājs");
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
-        // atjaunojam arī statistikai vārdu
+        // atjaunojam arī statistikas vārdu
         getPlayerStats(ws.id, ws.name);
         broadcastLeaderboard();
         broadcastQueues();
@@ -140,7 +151,12 @@ wss.on("connection", (ws) => {
           p2ready: match.p2ready
         });
 
+        // ja abi gatavi – atceļam auto-kick un sākam
         if (match.p1ready && match.p2ready) {
+          if (match.readyTimeout) {
+            clearTimeout(match.readyTimeout);
+            match.readyTimeout = null;
+          }
           startRoundWithCountdown(match);
         }
         break;
@@ -266,6 +282,7 @@ function createMatch(room, p1, p2) {
     p2ready: false,
     prepTimer: null,
     roundTimer: null,
+    readyTimeout: null,
   };
   matches.set(matchId, match);
   p1.matchId = matchId;
@@ -281,11 +298,45 @@ function createMatch(room, p1, p2) {
   send(p1, payload);
   send(p2, payload);
 
+  // AUTO-KICK ja 15s laikā nav gatavi
+  match.readyTimeout = setTimeout(() => {
+    checkNotReadyTimeout(match.id);
+  }, 15000);
+
   broadcastQueues();
 }
 
 
 // ===== RAUNDS =====
+
+function checkNotReadyTimeout(matchId) {
+  const match = matches.get(matchId);
+  if (!match) return;
+  if (match.p1ready && match.p2ready) return; // abi jau gatavi
+
+  // kāds nav gatavs → atmetam maču
+  const notReady = [];
+  const readyOnes = [];
+  if (!match.p1ready) notReady.push(match.p1);
+  else readyOnes.push(match.p1);
+  if (!match.p2ready) notReady.push(match.p2);
+  else readyOnes.push(match.p2);
+
+  notReady.forEach(pl => {
+    send(pl, { type: "notReadyKicked", message: "Tu 15s neapstiprināji GATAVS" });
+    pl.matchId = null;
+    if (!pl.leaveAfterMatch) queuePlayer(pl); else pl.leaveAfterMatch = false;
+  });
+
+  readyOnes.forEach(pl => {
+    send(pl, { type: "opponentNotReady", message: "Pretinieks nebija gatavs, meklējam jaunu." });
+    pl.matchId = null;
+    if (!pl.leaveAfterMatch) queuePlayer(pl); else pl.leaveAfterMatch = false;
+  });
+
+  matches.delete(match.id);
+  broadcastQueues();
+}
 
 function startRoundWithCountdown(match) {
   broadcastToMatch(match, { type: "roundPrepare", in: 10 });
@@ -314,6 +365,9 @@ function handleMove(ws, move) {
   const match = matches.get(matchId);
   if (!match) return;
   if (match.prepTimer) return;
+
+  // tikai 3 atļautie
+  if (!["rock","paper","scissors"].includes(move)) return;
 
   if (match.p1 === ws) {
     if (match.p1move) return;
@@ -384,6 +438,8 @@ function finishRound(match) {
     // mačs beidzies?
     if (match.p1score >= 2 || match.p2score >= 2) {
       const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
+      const loser = match.p1 === finalWinner ? match.p2 : match.p1;
+      const room = match.room;
 
       // leaderboardā +1 lielais punkts
       addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 1);
@@ -397,12 +453,22 @@ function finishRound(match) {
         winnerStats.bestStreak = winnerStats.streak;
       }
 
-      const loser = match.p1 === finalWinner ? match.p2 : match.p1;
       const loserStats = getPlayerStats(loser.id, loser.name);
       loserStats.loses += 1;
       loserStats.matches += 1;
       loserStats.streak = 0;
 
+      // “Dienas” uzvaras
+      const prev = dailyWins.get(finalWinner.id) || 0;
+      const now = prev + 1;
+      dailyWins.set(finalWinner.id, now);
+      let newKing = false;
+      if (!todayKing || now > todayKing.wins) {
+        todayKing = { id: finalWinner.id, name: finalWinner.name, wins: now };
+        newKing = true;
+      }
+
+      // nosūtām abiem, ka mačs beidzies
       broadcastToMatch(match, {
         type: "matchEnd",
         winner: finalWinner.name,
@@ -421,6 +487,26 @@ function finishRound(match) {
           loserStats
         ]
       });
+
+      // BROADCAST UZ ISTABU (streamer view): kurš uzvarēja
+      broadcastToRoom(room, {
+        type: "announcement",
+        room,
+        text: `🏆 ${finalWinner.name} uzvarēja ${loser.name} (${match.p1score}:${match.p2score}) istabā ${room}`
+      });
+
+      // ja jauns karalis – visiem!
+      if (newKing) {
+        broadcast({
+          type: "dailyKing",
+          king: todayKing
+        });
+      }
+
+      // notīram timerus
+      if (match.prepTimer) clearTimeout(match.prepTimer);
+      if (match.roundTimer) clearTimeout(match.roundTimer);
+      if (match.readyTimeout) clearTimeout(match.readyTimeout);
 
       match.p1.matchId = null;
       match.p2.matchId = null;
@@ -471,6 +557,15 @@ function broadcast(obj) {
 function broadcastToMatch(match, obj) {
   send(match.p1, obj);
   send(match.p2, obj);
+}
+
+function broadcastToRoom(room, obj) {
+  const str = JSON.stringify(obj);
+  for (const c of clients) {
+    if (c.readyState === WebSocket.OPEN && c.room === room) {
+      c.send(str);
+    }
+  }
 }
 
 function broadcastOnline() {
