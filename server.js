@@ -6,15 +6,10 @@ const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3001;
 
-// visi pieslēgtie klienti
-const clients = new Set();
-
-// gaidītāji rindā
-let waiting = null;
-
-// rezultāti TOPam (RAM, 24h pietiks)
-const leaderboard = new Map();
-// struktūra: id -> {id, name, score}
+const clients = new Set();        // visi pieslēgtie
+let waiting = null;               // viens gaidītājs rindā
+const leaderboard = new Map();    // id -> {id,name,score}
+const matches = new Map();        // matchId -> { ... }
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -23,67 +18,77 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-wss.on("connection", (ws, req) => {
-  ws.id = Math.random().toString(36).slice(2,9);
+wss.on("connection", (ws) => {
+  // sākotnējie dati
+  ws.id = Math.random().toString(36).slice(2, 9);
   ws.name = "Spēlētājs";
-  ws.isAlive = true;
   ws.matchId = null;
 
   clients.add(ws);
-  broadcastOnline();
+  broadcastOnline(); // parādām, ka ir jauns klients
 
   ws.on("message", (msg) => {
     let data;
-    try { data = JSON.parse(msg); } catch(e) { return; }
+    try {
+      data = JSON.parse(msg);
+    } catch (e) {
+      return;
+    }
 
+    // klients paziņo savu id/nick
     if (data.type === "hello") {
       if (data.id) ws.id = data.id;
       if (data.name) ws.name = sanitizeName(data.name);
-      addToLeaderboard(ws.id, ws.name, 0);
+
+      // ieliekam TOPā ar 0, ja neeksistē
+      addToLeaderboard(ws.id, ws.name, getScore(ws.id));
+
+      // ⬇️ svarīgais, lai tev rādās "Online: 1"
+      broadcastOnline();
+      broadcastLeaderboard();
+
+      // mēģinām viņu sapārot
       findMatch(ws);
     }
 
+    // ja spēles laikā maina niku
     if (data.type === "setName") {
       ws.name = sanitizeName(data.name || "Spēlētājs");
       addToLeaderboard(ws.id, ws.name, getScore(ws.id));
       broadcastLeaderboard();
     }
 
+    // spēlētājs izvēlējās gājienu
     if (data.type === "move") {
       handleMove(ws, data.move);
-    }
-
-    if (data.type === "ping") {
-      ws.isAlive = true;
     }
   });
 
   ws.on("close", () => {
     clients.delete(ws);
-    // ja viņš bija rindā, iztīram
     if (waiting && waiting === ws) {
       waiting = null;
     }
-    // ja viņš bija mačā, varētu paziņot otram
     broadcastOnline();
   });
 });
 
-// maču glabāšana
-const matches = new Map(); // matchId -> {p1, p2, p1move, p2move, p1score, p2score}
+// ===================== GALVENĀ LOĢIKA =====================
 
 function findMatch(ws) {
-  // ja jau ir gaidītājs
+  // ja jau kāds gaida → mēģinām sapārot
   if (waiting && waiting !== ws) {
-    // NEĻAUJ spēlēt pret sevi (niks vai id vienādi)
-    if (waiting.name.toLowerCase() === ws.name.toLowerCase() || waiting.id === ws.id) {
-      // pirmais spēlētājs paliek gaidītājs, otram sakām gaidīt citu
+    // aizliegums spēlēt pret sevi (viens un tas pats nick vai id)
+    if (
+      waiting.id === ws.id ||
+      (waiting.name && ws.name && waiting.name.toLowerCase() === ws.name.toLowerCase())
+    ) {
+      // šim spēlētājam sakām, ka vēl jāgaida citu
       send(ws, { type: "blockedSelf" });
       return;
     }
 
-    // izveidojam maču
-    const matchId = Math.random().toString(36).slice(2,9);
+    const matchId = Math.random().toString(36).slice(2, 9);
     const match = {
       id: matchId,
       p1: waiting,
@@ -93,22 +98,23 @@ function findMatch(ws) {
       p1score: 0,
       p2score: 0
     };
+
     matches.set(matchId, match);
     waiting.matchId = matchId;
     ws.matchId = matchId;
 
-    // paziņojam abiem
     const payload = {
       type: "matchStart",
       p1: { id: match.p1.id, name: match.p1.name, score: match.p1score },
-      p2: { id: match.p2.id, name: match.p2.name, score: match.p2score },
+      p2: { id: match.p2.id, name: match.p2.name, score: match.p2score }
     };
+
     send(match.p1, payload);
     send(match.p2, payload);
 
     waiting = null;
   } else {
-    // nav gaidītāja, šis kļūst par gaidītāju
+    // ja nav, tad šis kļūst par gaidītāju
     waiting = ws;
   }
 }
@@ -116,53 +122,66 @@ function findMatch(ws) {
 function handleMove(ws, move) {
   const matchId = ws.matchId;
   if (!matchId) return;
+
   const match = matches.get(matchId);
   if (!match) return;
 
-  // uzstādām gājienu
+  // iereģistrējam gājienu
   if (match.p1 === ws) {
-    if (match.p1move) return; // jau nospieda
+    if (match.p1move) return; // jau gājis
     match.p1move = move;
   } else if (match.p2 === ws) {
     if (match.p2move) return;
     match.p2move = move;
   }
 
-  // ja abi jau izvēlējušies → izrēķinam
+  // ja abi jau ir izvēlējušies → var rēķināt
   if (match.p1move && match.p2move) {
-    // vispirms parādām visiem (abiem) ka parāda kārtis (animācijas starts)
+    // 1) vispirms parādam ❔ abiem (fronts taisa animāciju)
     broadcastToMatch(match, { type: "rps-show" });
 
+    // 2) pēc pauzes parādām abus gājienus
     setTimeout(() => {
       const result = resolveRPS(match.p1move, match.p2move);
       let winnerName = null;
 
-      if (result === 1) { // p1 uzvar
+      if (result === 1) {
         match.p1score++;
         winnerName = match.p1.name;
-      } else if (result === 2) { // p2 uzvar
+      } else if (result === 2) {
         match.p2score++;
         winnerName = match.p2.name;
       }
 
-      // sūtam atklāšanu
       broadcastToMatch(match, {
         type: "rps-reveal",
-        p1: { name: match.p1.name, move: match.p1move, score: match.p1score },
-        p2: { name: match.p2.name, move: match.p2move, score: match.p2score },
+        p1: {
+          name: match.p1.name,
+          move: match.p1move,
+          score: match.p1score
+        },
+        p2: {
+          name: match.p2.name,
+          move: match.p2move,
+          score: match.p2score
+        },
         winner: winnerName
       });
 
-      // pārliekam uz nākamo raundu
+      // nākamajam raundam notīram
       match.p1move = null;
       match.p2move = null;
 
-      // best of 3 (pirmais līdz 2)
+      // best of 3 → pirmais līdz 2
       if (match.p1score >= 2 || match.p2score >= 2) {
-        // mačs beidzies
         const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
-        // piešķiram punktus TOP
-        addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 3);
+
+        // TOP +3
+        addToLeaderboard(
+          finalWinner.id,
+          finalWinner.name,
+          getScore(finalWinner.id) + 3
+        );
 
         broadcastToMatch(match, {
           type: "matchEnd",
@@ -173,29 +192,23 @@ function handleMove(ws, move) {
           p2score: match.p2score
         });
 
-        // izmetam maču
+        // beidzam maču
         match.p1.matchId = null;
         match.p2.matchId = null;
         matches.delete(match.id);
 
+        // atjaunojam TOP visiem
         broadcastLeaderboard();
 
-        // liksim abus atpakaļ rindā
+        // abus liekam atpakaļ rindā
         findMatch(match.p1);
         findMatch(match.p2);
-      } else {
-        // turpinām maču, abi atkal var izvēlēties
-        // šeit var nosūtīt "tu vari spēlēt tālāk"
-        // lai klients atbloķē pogas
       }
-    }, 900); // animācijas pauze
+    }, 900);
   }
 }
 
-function broadcastToMatch(match, obj) {
-  send(match.p1, obj);
-  send(match.p2, obj);
-}
+// ===================== PALĪGFUNKCIJAS =====================
 
 function resolveRPS(m1, m2) {
   if (m1 === m2) return 0;
@@ -213,9 +226,7 @@ function send(ws, obj) {
 function broadcast(obj) {
   const str = JSON.stringify(obj);
   for (const c of clients) {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(str);
-    }
+    if (c.readyState === WebSocket.OPEN) c.send(str);
   }
 }
 
@@ -228,13 +239,13 @@ function addToLeaderboard(id, name, score) {
 }
 
 function getScore(id) {
-  const row = leaderboard.get(id);
-  return row ? row.score : 0;
+  const r = leaderboard.get(id);
+  return r ? r.score : 0;
 }
 
 function broadcastLeaderboard() {
   const list = Array.from(leaderboard.values())
-    .sort((a,b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score)
     .slice(0, 12);
   broadcast({
     type: "leaderboard",
@@ -243,7 +254,8 @@ function broadcastLeaderboard() {
 }
 
 function sanitizeName(n) {
-  return (n || "Spēlētājs").toString()
+  return (n || "Spēlētājs")
+    .toString()
     .replace(/https?:\/\//g, "")
     .replace(/[\n\r\t]+/g, " ")
     .slice(0, 20);
