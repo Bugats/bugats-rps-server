@@ -1,6 +1,7 @@
 // server.js
 // Bugats RPS — 3 istabas ar rindām, best-of-3, "Gatavs" tikai mača sākumā,
-// 10 s prepare + 15 s cīņa, avatars, pēdējā partija, AFK, nevar spēlēt ar sevi.
+// 10 s prepare + 15 s cīņa, avatars, pēdējā partija, AFK, nevar spēlēt ar sevi,
+// + A variants: statistika RAMā (wins, loses, matches, streak, bestStreak)
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -19,8 +20,12 @@ const waiting = {
 
 const matches = new Map();
 
-// top
+// leaderboard (tavi “lielie” punkti)
 const leaderboard = new Map();
+
+// A variants — statistika RAMā
+// struktūra: { id, name, wins, loses, matches, streak, bestStreak }
+const playerStats = new Map();
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -53,6 +58,7 @@ wss.on("connection", (ws) => {
         if (data.id) {
           const existing = playersById.get(data.id);
           if (existing && existing !== ws) {
+            // izmetam veco
             removeFromQueues(existing);
             if (existing.matchId) {
               const m = matches.get(existing.matchId);
@@ -80,6 +86,9 @@ wss.on("connection", (ws) => {
           }
         }
 
+        // izveidojam / sinhronizējam statistiku
+        getPlayerStats(ws.id, ws.name);
+
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
         broadcastLeaderboard();
 
@@ -92,6 +101,8 @@ wss.on("connection", (ws) => {
       case "setName": {
         ws.name = sanitizeName(data.name || "Spēlētājs");
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
+        // atjaunojam arī statistikai vārdu
+        getPlayerStats(ws.id, ws.name);
         broadcastLeaderboard();
         broadcastQueues();
         break;
@@ -370,9 +381,27 @@ function finishRound(match) {
       winner: winnerName
     });
 
+    // mačs beidzies?
     if (match.p1score >= 2 || match.p2score >= 2) {
       const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
+
+      // leaderboardā +1 lielais punkts
       addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 1);
+
+      // A variants: atjaunojam statistiku abiem
+      const winnerStats = getPlayerStats(finalWinner.id, finalWinner.name);
+      winnerStats.wins += 1;
+      winnerStats.matches += 1;
+      winnerStats.streak += 1;
+      if (winnerStats.streak > winnerStats.bestStreak) {
+        winnerStats.bestStreak = winnerStats.streak;
+      }
+
+      const loser = match.p1 === finalWinner ? match.p2 : match.p1;
+      const loserStats = getPlayerStats(loser.id, loser.name);
+      loserStats.loses += 1;
+      loserStats.matches += 1;
+      loserStats.streak = 0;
 
       broadcastToMatch(match, {
         type: "matchEnd",
@@ -382,6 +411,15 @@ function finishRound(match) {
         p1score: match.p1score,
         p2score: match.p2score,
         countdown: 15
+      });
+
+      // nosūtām abu statiskos datus klientiem
+      broadcastToMatch(match, {
+        type: "playerStats",
+        players: [
+          winnerStats,
+          loserStats
+        ]
       });
 
       match.p1.matchId = null;
@@ -395,6 +433,7 @@ function finishRound(match) {
       if (!match.p2.leaveAfterMatch) queuePlayer(match.p2); else match.p2.leaveAfterMatch = false;
 
     } else {
+      // mačs nav beidzies → nākamais raunds automātiski
       startRoundWithCountdown(match);
     }
 
@@ -465,6 +504,25 @@ function broadcastLeaderboard() {
     .sort((a,b)=>b.score-a.score)
     .slice(0,12);
   broadcast({ type: "leaderboard", list });
+}
+
+// A variants — dabū vai izveido statistiku
+function getPlayerStats(id, name) {
+  if (!playerStats.has(id)) {
+    playerStats.set(id, {
+      id,
+      name: name || "Spēlētājs",
+      wins: 0,
+      loses: 0,
+      matches: 0,
+      streak: 0,
+      bestStreak: 0,
+    });
+  } else {
+    const st = playerStats.get(id);
+    if (name) st.name = name;
+  }
+  return playerStats.get(id);
 }
 
 function sanitizeName(n) {
