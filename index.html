@@ -2,15 +2,13 @@
 <html lang="lv">
 <head>
   <meta charset="UTF-8" />
-  <title>Bugats – Akmens Šķēres Papīrīts (online)</title>
+  <title>Bugats RPS (online)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
       --bg: #020617;
       --panel: rgba(15, 23, 42, .5);
       --accent: #38bdf8;
-      --win: #22c55e;
-      --lose: #ef4444;
     }
     * { box-sizing: border-box; }
     body {
@@ -32,17 +30,13 @@
     }
     .game {
       flex: 1;
-      background: var(--panel);
-      border: 1px solid rgba(148,163,184,.1);
+      background: rgba(15, 23, 42, .4);
+      border: 1px solid rgba(148, 163, 184, .1);
       border-radius: 16px;
       padding: 1rem;
-      backdrop-filter: blur(9px);
-      display: flex;
-      flex-direction: column;
-      gap: .75rem;
     }
     .sidebar {
-      width: 280px;
+      width: 290px;
       background: rgba(2, 6, 23, 0.35);
       border: 1px solid rgba(148,163,184,.12);
       border-radius: 16px;
@@ -51,34 +45,8 @@
       flex-direction: column;
       gap: .6rem;
     }
-    h1 {
-      font-size: 1.15rem;
-      margin: 0;
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-    }
-    #status {
-      font-size: .8rem;
-      color: #94a3b8;
-    }
-    #controls {
-      display: flex;
-      gap: .5rem;
-    }
-    button {
-      background: rgba(56, 189, 248, .1);
-      border: 1px solid rgba(56, 189, 248, .4);
-      color: #e2e8f0;
-      border-radius: 10px;
-      padding: .4rem .8rem;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    button:disabled {
-      opacity: .4;
-      cursor: not-allowed;
-    }
+    h1 { margin: 0 0 .35rem 0; font-size: 1.05rem; }
+    #status { color: #94a3b8; font-size: .8rem; margin-left: .35rem; }
     #rps-arena {
       display: flex;
       gap: 1rem;
@@ -105,10 +73,9 @@
     .rps-name {
       font-size: .75rem;
       color: #94a3b8;
-      text-transform: none;
     }
     .rps-card.reveal {
-      transform: scale(1.05);
+      transform: scale(1.03);
       box-shadow: 0 15px 35px rgba(0,0,0,.25);
     }
     #rps-winner {
@@ -140,17 +107,6 @@
       border-radius: 12px;
       padding: .45rem .5rem .35rem;
     }
-    .lb-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: .75rem;
-      padding: .25rem .2rem;
-      border-radius: 6px;
-    }
-    .lb-item.me {
-      background: rgba(56,189,248,.08);
-    }
     #nick-input {
       width: 100%;
       background: rgba(15,23,42,.3);
@@ -160,36 +116,61 @@
       color: #e2e8f0;
       margin-top: .25rem;
     }
-    #overlay {
-      position: fixed;
-      inset: 0;
-      display: none;
+    .lb-item {
+      display: flex;
+      justify-content: space-between;
       align-items: center;
-      justify-content: center;
-      background: rgba(2,6,23,.78);
-      z-index: 50;
-      flex-direction: column;
-      gap: .5rem;
+      font-size: .75rem;
+      padding: .25rem .2rem;
+      border-radius: 6px;
     }
-    #overlay p {
-      color: #e2e8f0;
+    .lb-item.me { background: rgba(56,189,248,.08); }
+    .rooms {
+      display: flex;
+      gap: .35rem;
+      margin-top: .35rem;
+    }
+    .room-btn {
+      flex: 1;
+      background: rgba(15, 23, 42, .25);
+      border: 1px solid rgba(148,163,184,.25);
+      border-radius: 6px;
+      text-align: center;
+      font-size: .7rem;
+      padding: .25rem 0;
+      cursor: pointer;
+    }
+    .room-btn.active {
+      border-color: #38bdf8;
+      background: rgba(56,189,248,.08);
+    }
+    #online-rooms {
+      font-size: .68rem;
+      color: #94a3b8;
+      margin-top: .25rem;
+    }
+    #last-btn {
+      width: 100%;
+      margin-top: .35rem;
+      background: rgba(220, 38, 38, .18);
+      border: 1px solid rgba(248, 113, 113, .35);
+      border-radius: 7px;
+      padding: .35rem 0;
+      text-align: center;
+      font-size: .7rem;
+      cursor: pointer;
     }
     @media (max-width: 950px) {
       #app { flex-direction: column; }
-      .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; gap: .5rem; }
-      #rps-arena { flex-wrap: wrap; }
+      .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; }
+      .game { order: -1; }
     }
   </style>
 </head>
 <body>
-  <div id="overlay">
-    <h2>⏸ Spēle iesaldēta</h2>
-    <p id="overlay-text"></p>
-  </div>
-
   <div id="app">
     <div class="game">
-      <h1>Bugats RPS <span id="status">(gaida pretinieku)</span></h1>
+      <h1>Bugats RPS <span id="status">(nav savienojuma)</span></h1>
       <div id="rps-arena">
         <div id="rps-p1" class="rps-card">
           <div class="rps-name" id="rps-p1-name">Gaida...</div>
@@ -217,8 +198,19 @@
       <div class="card">
         <strong>Mans niks</strong>
         <input id="nick-input" maxlength="20" />
-        <small id="nick-info" style="font-size:.7rem;color:#94a3b8;">Mainīt saprātīgi 😉</small>
+        <small style="font-size:.7rem;color:#94a3b8;">Mainīt saprātīgi 😉</small>
       </div>
+
+      <div class="card">
+        <strong>Istaba</strong>
+        <div class="rooms">
+          <div class="room-btn" data-room="1">Room 1</div>
+          <div class="room-btn" data-room="2">Room 2</div>
+          <div class="room-btn" data-room="3">Room 3</div>
+        </div>
+        <div id="online-rooms">1:0 · 2:0 · 3:0</div>
+      </div>
+
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong>TOP</strong>
@@ -226,25 +218,32 @@
         </div>
         <div id="leaderboard" style="display:flex;flex-direction:column;gap:.25rem;margin-top:.25rem;"></div>
       </div>
+
       <div class="card" style="flex:1;min-height:120px;">
         <strong>Pēdējie mači</strong>
-        <div id="history" style="margin-top:.3rem;max-height:200px;overflow-y:auto;font-size:.7rem;display:flex;flex-direction:column;gap:.25rem;"></div>
+        <div id="history" style="margin-top:.3rem;max-height:230px;overflow-y:auto;font-size:.7rem;display:flex;flex-direction:column;gap:.25rem;"></div>
+        <div id="last-btn">Pēdējā partija 🎯</div>
       </div>
     </div>
   </div>
 
   <script>
-    // N O T E: nomaini uz savu Render WS adresi
-    const WS_URL = "wss://bugats-rps.onrender.com"; // vai ws://localhost:3001
+    // TE IEVIETO SAVU īsto Render WS adresi
+    // piem.: const WS_URL = "wss://bugats-rps.onrender.com";
+    const WS_URL = "wss://bugats-rps.onrender.com";
 
     const state = {
       ws: null,
-      myId: Math.random().toString(36).slice(2,9),
+      myId: localStorage.getItem("rps_id") || Math.random().toString(36).slice(2,9),
       myName: localStorage.getItem("rps_nick") || ("Spēlētājs-" + Math.floor(Math.random()*999)),
+      room: localStorage.getItem("rps_room") || "1",
       inMatch: false,
-      canMove: false,
+      canMove: false
     };
+    // saglabājam id, lai paliek tas pats
+    localStorage.setItem("rps_id", state.myId);
 
+    // elementi
     const p1name = document.getElementById("rps-p1-name");
     const p2name = document.getElementById("rps-p2-name");
     const p1move = document.getElementById("rps-p1-move");
@@ -257,10 +256,12 @@
     const lbEl = document.getElementById("leaderboard");
     const onlineEl = document.getElementById("online");
     const historyEl = document.getElementById("history");
-    const overlay = document.getElementById("overlay");
-    const overlayText = document.getElementById("overlay-text");
+    const onlineRoomsEl = document.getElementById("online-rooms");
+    const lastBtn = document.getElementById("last-btn");
+    const roomBtns = document.querySelectorAll(".room-btn");
 
     nickInput.value = state.myName;
+    setActiveRoomBtn();
 
     connect();
 
@@ -270,7 +271,12 @@
 
       ws.addEventListener("open", () => {
         statusEl.textContent = "(savienots, gaida pretinieku)";
-        ws.send(JSON.stringify({ type: "hello", id: state.myId, name: state.myName }));
+        ws.send(JSON.stringify({
+          type: "hello",
+          id: state.myId,
+          name: state.myName,
+          room: state.room
+        }));
       });
 
       ws.addEventListener("message", (ev) => {
@@ -288,10 +294,21 @@
     function handleMsg(msg) {
       switch (msg.type) {
         case "online":
-          onlineEl.textContent = "Online: " + msg.count;
+          onlineEl.textContent = "Online: " + (msg.total || 0);
+          if (msg.rooms) {
+            onlineRoomsEl.textContent = `1:${msg.rooms["1"]||0} · 2:${msg.rooms["2"]||0} · 3:${msg.rooms["3"]||0}`;
+          }
           break;
+
+        case "leaderboard":
+          renderLeaderboard(msg.list || []);
+          break;
+
+        case "waiting":
+          statusEl.textContent = "(savienots, gaida pretinieku)";
+          break;
+
         case "matchStart":
-          // matchStart: {p1:{id,name}, p2:{id,name}}
           state.inMatch = true;
           state.canMove = true;
           p1name.textContent = msg.p1.name;
@@ -303,15 +320,17 @@
           winnerEl.style.display = "none";
           statusEl.textContent = "(cīņa notiek)";
           break;
+
         case "rps-show":
-          // tikai iestata jautājuma zīmes
           p1move.textContent = "❔";
           p2move.textContent = "❔";
           winnerEl.style.display = "none";
           break;
+
         case "rps-reveal":
           revealMoves(msg);
           break;
+
         case "matchEnd":
           winnerEl.textContent = "🥇 Uzvarēja: " + msg.winner;
           winnerEl.style.display = "block";
@@ -320,18 +339,26 @@
           addHistory(msg);
           statusEl.textContent = "(gaida jaunu pretinieku)";
           break;
-        case "leaderboard":
-          renderLeaderboard(msg.list || []);
+
+        case "opponentLeft":
+          statusEl.textContent = "(pretinieks aizgāja, gaida jaunu)";
+          p2name.textContent = "Gaida...";
+          p2move.textContent = "❔";
+          p2score.textContent = "0";
+          state.inMatch = false;
+          state.canMove = false;
           break;
+
+        case "lastGameAck":
+          statusEl.textContent = "(pēdējā partija aktivizēta)";
+          break;
+
         case "blockedSelf":
-          // serveris neļāva spēlēt pret sevi
           statusEl.textContent = "(gaida citu spēlētāju)";
           break;
-        case "freeze":
-          showOverlay(msg.reason || "Pretinieks kavējas");
-          break;
-        case "unfreeze":
-          hideOverlay();
+
+        case "error":
+          alert(msg.message);
           break;
       }
     }
@@ -345,16 +372,21 @@
       p2score.textContent = msg.p2.score;
       c1.classList.add("reveal");
       c2.classList.add("reveal");
+
       if (msg.winner) {
         winnerEl.textContent = "🎉 " + msg.winner + " uzvarēja!";
       } else {
         winnerEl.textContent = "⚖ Neizšķirts";
       }
       winnerEl.style.display = "block";
+
       setTimeout(() => {
         c1.classList.remove("reveal");
         c2.classList.remove("reveal");
       }, 1200);
+
+      // gatavs nākamajam gājienam
+      state.canMove = true;
     }
 
     function emojiFromMove(move) {
@@ -364,12 +396,11 @@
       return "❔";
     }
 
-    // izvēles pogas
     document.querySelectorAll(".move-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         if (!state.inMatch || !state.canMove) return;
         const move = btn.dataset.move;
-        state.canMove = false; // vienā raundā tikai 1 gājiens
+        state.canMove = false;
         state.ws.send(JSON.stringify({
           type: "move",
           move,
@@ -378,7 +409,6 @@
       });
     });
 
-    // niks
     nickInput.addEventListener("change", () => {
       const v = nickInput.value.trim();
       if (!v) return;
@@ -388,6 +418,32 @@
         state.ws.send(JSON.stringify({ type: "setName", name: v, id: state.myId }));
       }
     });
+
+    lastBtn.addEventListener("click", () => {
+      if (state.ws && state.ws.readyState === 1) {
+        state.ws.send(JSON.stringify({ type: "lastGame" }));
+      }
+    });
+
+    roomBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const r = btn.dataset.room;
+        if (r === state.room) return;
+        state.room = r;
+        localStorage.setItem("rps_room", r);
+        setActiveRoomBtn();
+        if (state.ws && state.ws.readyState === 1) {
+          state.ws.send(JSON.stringify({ type: "changeRoom", room: r }));
+          statusEl.textContent = "(maina istabu...)";
+        }
+      });
+    });
+
+    function setActiveRoomBtn() {
+      roomBtns.forEach(b => {
+        b.classList.toggle("active", b.dataset.room === state.room);
+      });
+    }
 
     function renderLeaderboard(list) {
       lbEl.innerHTML = "";
@@ -406,14 +462,6 @@
       if (historyEl.children.length > 50) {
         historyEl.removeChild(historyEl.lastChild);
       }
-    }
-
-    function showOverlay(text) {
-      overlayText.textContent = text;
-      overlay.style.display = "flex";
-    }
-    function hideOverlay() {
-      overlay.style.display = "none";
     }
   </script>
 </body>
