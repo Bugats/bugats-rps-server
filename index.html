@@ -34,6 +34,7 @@
       border: 1px solid rgba(148, 163, 184, .1);
       border-radius: 16px;
       padding: 1rem;
+      position: relative;
     }
     .sidebar {
       width: 290px;
@@ -47,6 +48,7 @@
     }
     h1 { margin: 0 0 .35rem 0; font-size: 1.05rem; }
     #status { color: #94a3b8; font-size: .8rem; margin-left: .35rem; }
+
     #rps-arena {
       display: flex;
       gap: 1rem;
@@ -69,6 +71,7 @@
       font-size: 2.4rem;
       transition: .25s;
       position: relative;
+      overflow: hidden;
     }
     .rps-name {
       font-size: .75rem;
@@ -77,6 +80,17 @@
     .rps-card.reveal {
       transform: scale(1.03);
       box-shadow: 0 15px 35px rgba(0,0,0,.25);
+    }
+    .avatar {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: rgba(15,23,42,.6);
+      border: 1px solid rgba(148,163,184,.2);
+      border-radius: 9999px;
+      font-size: 1rem;
+      padding: 2px 6px 3px;
+      line-height: 1;
     }
     #rps-winner {
       text-align: center;
@@ -160,6 +174,18 @@
       font-size: .7rem;
       cursor: pointer;
     }
+    #round-banner {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15,23,42,.85);
+      border: 1px solid rgba(148,163,184,.4);
+      border-radius: 9999px;
+      padding: 4px 14px 5px;
+      font-size: .7rem;
+      display: none;
+    }
     @media (max-width: 950px) {
       #app { flex-direction: column; }
       .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; }
@@ -170,15 +196,18 @@
 <body>
   <div id="app">
     <div class="game">
+      <div id="round-banner">Raunds sācies 🟦</div>
       <h1>Bugats RPS <span id="status">(nav savienojuma)</span></h1>
       <div id="rps-arena">
         <div id="rps-p1" class="rps-card">
+          <div class="avatar" id="p1-avatar">🐺</div>
           <div class="rps-name" id="rps-p1-name">Gaida...</div>
           <div id="rps-p1-move">❔</div>
           <small id="rps-p1-score" style="font-size:.6rem;color:#94a3b8;">0</small>
         </div>
         <div style="font-weight:700;">VS</div>
         <div id="rps-p2" class="rps-card">
+          <div class="avatar" id="p2-avatar">🦅</div>
           <div class="rps-name" id="rps-p2-name">Gaida...</div>
           <div id="rps-p2-move">❔</div>
           <small id="rps-p2-score" style="font-size:.6rem;color:#94a3b8;">0</small>
@@ -228,8 +257,7 @@
   </div>
 
   <script>
-    // TE IEVIETO SAVU īsto Render WS adresi
-    // piem.: const WS_URL = "wss://bugats-rps.onrender.com";
+    // ŠEIT ieliec savu Render adresi
     const WS_URL = "wss://bugats-rps.onrender.com";
 
     const state = {
@@ -240,7 +268,6 @@
       inMatch: false,
       canMove: false
     };
-    // saglabājam id, lai paliek tas pats
     localStorage.setItem("rps_id", state.myId);
 
     // elementi
@@ -250,8 +277,10 @@
     const p2move = document.getElementById("rps-p2-move");
     const p1score = document.getElementById("rps-p1-score");
     const p2score = document.getElementById("rps-p2-score");
-    const winnerEl = document.getElementById("rps-winner");
+    const p1avatar = document.getElementById("p1-avatar");
+    const p2avatar = document.getElementById("p2-avatar");
     const statusEl = document.getElementById("status");
+    const winnerEl = document.getElementById("rps-winner");
     const nickInput = document.getElementById("nick-input");
     const lbEl = document.getElementById("leaderboard");
     const onlineEl = document.getElementById("online");
@@ -259,10 +288,10 @@
     const onlineRoomsEl = document.getElementById("online-rooms");
     const lastBtn = document.getElementById("last-btn");
     const roomBtns = document.querySelectorAll(".room-btn");
+    const roundBanner = document.getElementById("round-banner");
 
     nickInput.value = state.myName;
     setActiveRoomBtn();
-
     connect();
 
     function connect() {
@@ -281,7 +310,7 @@
 
       ws.addEventListener("message", (ev) => {
         let msg;
-        try { msg = JSON.parse(ev.data); } catch(e) { return; }
+        try { msg = JSON.parse(ev.data); } catch (e) { return; }
         handleMsg(msg);
       });
 
@@ -317,8 +346,15 @@
           p2move.textContent = "❔";
           p1score.textContent = msg.p1.score ?? 0;
           p2score.textContent = msg.p2.score ?? 0;
+          p1avatar.textContent = avatarFromId(msg.p1.id);
+          p2avatar.textContent = avatarFromId(msg.p2.id);
           winnerEl.style.display = "none";
           statusEl.textContent = "(cīņa notiek)";
+          break;
+
+        case "roundStart":
+          showRoundBanner();
+          state.canMove = true;
           break;
 
         case "rps-show":
@@ -332,12 +368,10 @@
           break;
 
         case "matchEnd":
-          winnerEl.textContent = "🥇 Uzvarēja: " + msg.winner;
-          winnerEl.style.display = "block";
+          startMatchCountdown(msg);
           state.inMatch = false;
           state.canMove = false;
           addHistory(msg);
-          statusEl.textContent = "(gaida jaunu pretinieku)";
           break;
 
         case "opponentLeft":
@@ -355,6 +389,10 @@
 
         case "blockedSelf":
           statusEl.textContent = "(gaida citu spēlētāju)";
+          break;
+
+        case "kicked":
+          alert("Tevi izmeta: " + (msg.reason || "AFK"));
           break;
 
         case "error":
@@ -384,9 +422,22 @@
         c1.classList.remove("reveal");
         c2.classList.remove("reveal");
       }, 1200);
+    }
 
-      // gatavs nākamajam gājienam
-      state.canMove = true;
+    function startMatchCountdown(msg) {
+      let left = msg.countdown || 15;
+      function tick() {
+        winnerEl.textContent = `🥇 Uzvarēja: ${msg.winner} · jauns mačs pēc ${left}s`;
+        winnerEl.style.display = "block";
+        left--;
+        if (left >= 0) {
+          setTimeout(tick, 1000);
+        } else {
+          winnerEl.style.display = "none";
+        }
+      }
+      tick();
+      statusEl.textContent = "(gaida jaunu pretinieku)";
     }
 
     function emojiFromMove(move) {
@@ -462,6 +513,20 @@
       if (historyEl.children.length > 50) {
         historyEl.removeChild(historyEl.lastChild);
       }
+    }
+
+    function showRoundBanner() {
+      roundBanner.style.display = "block";
+      setTimeout(() => {
+        roundBanner.style.display = "none";
+      }, 1600);
+    }
+
+    function avatarFromId(id) {
+      const list = ["🐺","🦅","🐉","🐗","🐻","🐯","🦊","🐍","🦂","🐲","🦁","🦜"];
+      let sum = 0;
+      for (let i = 0; i < id.length; i++) sum += id.charCodeAt(i);
+      return list[sum % list.length];
     }
   </script>
 </body>
