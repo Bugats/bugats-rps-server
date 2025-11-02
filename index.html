@@ -59,6 +59,28 @@
     }
     .status { font-size: .8rem; opacity: .7; }
 
+    /* STREAMER VIEW augšējā josla */
+    #topBar {
+      display:flex;
+      gap:1rem;
+      align-items:center;
+      justify-content:space-between;
+      background: rgba(15,23,42,.35);
+      border: 1px solid rgba(148,163,184,.05);
+      border-radius: 9999px;
+      padding: .3rem .75rem;
+      font-size:.7rem;
+      margin-bottom:.4rem;
+    }
+    #kingBox {
+      display:flex;
+      gap:.35rem;
+      align-items:center;
+    }
+    #queuesMini {
+      opacity:.65;
+    }
+
     .arena {
       margin-top: .6rem;
       display: flex;
@@ -184,6 +206,24 @@
       z-index: 30;
     }
 
+    /* Lielais baneris strīmerim */
+    #bigBanner {
+      position: absolute;
+      top: 35%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle, rgba(15,23,42,.5), rgba(2,6,23,0));
+      padding: 1.4rem 2rem;
+      border-radius: 1.5rem;
+      border: 1px solid rgba(236, 253, 245, .3);
+      backdrop-filter: blur(6px);
+      font-size: 1.4rem;
+      text-align: center;
+      display: none;
+      z-index: 50;
+      pointer-events: none;
+    }
+
     #fight-anim {
       position: absolute;
       top: 105px;
@@ -208,9 +248,6 @@
     }
     .fight-left { left: 0; }
     .fight-right { right: 0; }
-    .fight-wrap.rock-smash .fight-left,
-    .fight-wrap.rock-smash .fight-right { animation: smash 1s ease; }
-    @keyframes smash { 0%{transform:scale(1);} 50%{transform:scale(1.25);} 100%{transform:scale(1);} }
 
     .name-input {
       width: 100%;
@@ -261,6 +298,7 @@
         height: 170px;
       }
       .question { font-size: 3.5rem; }
+      #topBar { flex-direction: column; align-items:flex-start; }
     }
   </style>
 </head>
@@ -268,6 +306,13 @@
   <div class="wrap">
     <div class="left">
       <h1>Bugats RPS <span id="status" class="status">(nav savienojuma)</span></h1>
+
+      <div id="topBar">
+        <div id="kingBox">👑 Nav karaļa</div>
+        <div id="queuesMini">Istabas: 1–0 | 2–0 | 3–0</div>
+      </div>
+
+      <div id="bigBanner"></div>
 
       <div id="fight-anim">
         <div class="fight-wrap" id="fight-wrap">
@@ -393,6 +438,9 @@
     const winnerLine = document.getElementById("winnerLine");
     const mustReady = document.getElementById("mustReady");
     const statsBox = document.getElementById("statsBox");
+    const bigBanner = document.getElementById("bigBanner");
+    const kingBox = document.getElementById("kingBox");
+    const queuesMini = document.getElementById("queuesMini");
 
     const q1 = document.getElementById("q1");
     const q2 = document.getElementById("q2");
@@ -437,6 +485,7 @@
       switch (data.type) {
         case "online":
           onlineInfoEl.textContent = `Online: ${data.total} | 1:${data.rooms["1"]} 2:${data.rooms["2"]} 3:${data.rooms["3"]}`;
+          queuesMini.textContent = `Istabas: 1–${data.rooms["1"]} | 2–${data.rooms["2"]} | 3–${data.rooms["3"]}`;
           break;
 
         case "queues":
@@ -445,6 +494,22 @@
 
         case "leaderboard":
           renderTop(data.list);
+          break;
+
+        case "dailyKing":
+          if (data.king) {
+            kingBox.textContent = `👑 Šodien karalis: ${data.king.name} (${data.king.wins} uzv.)`;
+          } else {
+            kingBox.textContent = "👑 Nav karaļa";
+          }
+          break;
+
+        case "announcement":
+          // rādam tikai ja tas ir mūsu istabai
+          if (!data.room || data.room === myRoom) {
+            showBigBanner(data.text);
+            addLog(data.text);
+          }
           break;
 
         case "matchStart":
@@ -483,6 +548,7 @@
 
         case "matchEnd":
           addLog(`Uzvarēja ${data.winner} (${data.p1score}:${data.p2score})`);
+          showBigBanner(`🏆 ${data.winner} uzvarēja maču!`);
           roundInfo.textContent = `Mačs beidzies!`;
           p1round.textContent = "0";
           p2round.textContent = "0";
@@ -509,6 +575,14 @@
 
         case "playerStats":
           renderStats(data.players);
+          break;
+
+        case "notReadyKicked":
+          showMsg(data.message || "Neapstiprināji gatavs");
+          break;
+
+        case "opponentNotReady":
+          showMsg(data.message || "Pretinieks nebija gatavs, meklējam jaunu");
           break;
 
         case "error":
@@ -588,7 +662,6 @@
       fightLeft.style.backgroundImage = iconForMove(move1);
       fightRight.style.backgroundImage = iconForMove(move2);
       fightWrap.className = "fight-wrap";
-
       fightBox.style.display = "block";
       setTimeout(() => {
         fightBox.style.display = "none";
@@ -695,7 +768,6 @@
         statsBox.textContent = "";
         return;
       }
-      // divi spēlētāji
       statsBox.innerHTML = players.map(p => {
         return `<div><strong>${p.name}</strong>: ${p.wins}W / ${p.loses}L, mači: ${p.matches}, streak: ${p.streak} (best ${p.bestStreak})</div>`;
       }).join("");
@@ -705,6 +777,10 @@
       const d = document.createElement("div");
       d.textContent = text;
       logs.prepend(d);
+      // max 50
+      while (logs.children.length > 50) {
+        logs.removeChild(logs.lastChild);
+      }
     }
 
     function showMsg(t) {
@@ -714,6 +790,15 @@
       showMsg._t = setTimeout(() => {
         msg.style.display = "none";
       }, 2500);
+    }
+
+    function showBigBanner(text) {
+      bigBanner.textContent = text;
+      bigBanner.style.display = "block";
+      clearTimeout(showBigBanner._t);
+      showBigBanner._t = setTimeout(() => {
+        bigBanner.style.display = "none";
+      }, 1600);
     }
   </script>
 </body>
