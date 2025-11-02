@@ -1,16 +1,34 @@
 // server.js
-// Bugats RPS – online, best of 3, ar animāciju, ar aizliegumu spēlēt pašam ar sevi
-// + auto-round (ja otrs 7s laikā neizvēlas gājienu, serveris izvēlas viņam random)
+// Bugats RPS (Akmens · Šķēres · Papīrīts)
+// Funkcijas:
+// - max 3 rooms, spēlētājs izvēlas kuru
+// - best of 3 (pirmais līdz 2 uzvarām)
+// - auto-round: ja otrs 7s nenospiež, serveris izvēlas random
+// - "pēdējā partija" – pēc šī mača vairs neliek rindā
+// - aizliegts spēlēt pašam ar sevi (pēc id + nika)
+// - online skaits + pa istabām
+// - ja pretinieks aiziet mača laikā → otram paziņojums
 
 const http = require("http");
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3001;
 
-const clients = new Set();        // visi pieslēgtie
-let waiting = null;               // viens gaidītājs rindā
-const leaderboard = new Map();    // id -> {id,name,score}
-const matches = new Map();        // matchId -> { ... }
+// visi pieslēgtie
+const clients = new Set();
+
+// gaidītāji pa istabām
+const waiting = {
+  "1": null,
+  "2": null,
+  "3": null
+};
+
+// aktīvie mači
+const matches = new Map();
+
+// TOP
+const leaderboard = new Map();
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -20,131 +38,204 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (ws) => {
+  // sākotnējie dati
   ws.id = Math.random().toString(36).slice(2, 9);
   ws.name = "Spēlētājs";
+  ws.room = "1";              // pēc noklusējuma 1. room
   ws.matchId = null;
+  ws.leaveAfterMatch = false; // “pēdējā partija” vēl ne
 
   clients.add(ws);
   broadcastOnline();
 
-  ws.on("message", (msg) => {
+  ws.on("message", (message) => {
     let data;
     try {
-      data = JSON.parse(msg);
+      data = JSON.parse(message);
     } catch (e) {
       return;
     }
 
-    // klients pasaka kas viņš ir
-    if (data.type === "hello") {
-      if (data.id) ws.id = data.id;
-      if (data.name) ws.name = sanitizeName(data.name);
+    // GALVENAIS SWITCH
+    switch (data.type) {
+      case "hello": {
+        if (data.id) ws.id = data.id;
+        if (data.name) ws.name = sanitizeName(data.name);
+        if (data.room && ["1","2","3"].includes(data.room+"")) {
+          ws.room = data.room + "";
+        }
 
-      // ieliekam TOPā, ja nav
-      addToLeaderboard(ws.id, ws.name, getScore(ws.id));
+        // ieliekam TOPā ja nav
+        addToLeaderboard(ws.id, ws.name, getScore(ws.id));
 
-      // uzreiz atjaunojam, lai frontā rāda Online: 1
-      broadcastOnline();
-      broadcastLeaderboard();
+        broadcastOnline();
+        broadcastLeaderboard();
 
-      findMatch(ws);
-    }
+        // mēģinām atrast pretinieku TAJĀ ISTABĀ
+        findMatch(ws);
+        break;
+      }
 
-    // klients maina niku
-    if (data.type === "setName") {
-      ws.name = sanitizeName(data.name || "Spēlētājs");
-      addToLeaderboard(ws.id, ws.name, getScore(ws.id));
-      broadcastLeaderboard();
-    }
+      case "setName": {
+        ws.name = sanitizeName(data.name || "Spēlētājs");
+        addToLeaderboard(ws.id, ws.name, getScore(ws.id));
+        broadcastLeaderboard();
+        // lai neatstāj mapē veco vārdu
+        break;
+      }
 
-    // klients nospieda gājienu
-    if (data.type === "move") {
-      handleMove(ws, data.move);
+      case "move": {
+        handleMove(ws, data.move);
+        break;
+      }
+
+      case "lastGame": {
+        // spēlētājs saka: pēc šī mača nevajag vairs
+        ws.leaveAfterMatch = true;
+        send(ws, { type: "lastGameAck" });
+        break;
+      }
+
+      case "changeRoom": {
+        const newRoom = (data.room || "1") + "";
+        if (!["1","2","3"].includes(newRoom)) return;
+
+        // ja viņš šobrīd ir mačā – nedrīkst mainīt room
+        if (ws.matchId) {
+          send(ws, { type: "error", message: "Nevar mainīt istabu mača laikā." });
+          return;
+        }
+
+        // ja viņš bija gaidītājs vecajā room -> noņemam
+        if (waiting[ws.room] === ws) {
+          waiting[ws.room] = null;
+        }
+
+        ws.room = newRoom;
+        ws.leaveAfterMatch = false; // ja maina room – sākam no jauna
+        findMatch(ws);
+        broadcastOnline();
+        break;
+      }
     }
   });
 
   ws.on("close", () => {
+    // izmetam no kopējā saraksta
     clients.delete(ws);
-    if (waiting && waiting === ws) {
-      waiting = null;
+
+    // ja viņš bija gaidītājs savā room → noņemam
+    if (waiting[ws.room] === ws) {
+      waiting[ws.room] = null;
     }
+
+    // ja viņš bija mačā → otram paziņojam
+    if (ws.matchId) {
+      const match = matches.get(ws.matchId);
+      if (match) {
+        const other = match.p1 === ws ? match.p2 : match.p1;
+        send(other, { type: "opponentLeft" });
+        other.matchId = null;
+        matches.delete(match.id);
+
+        // ja otrs NEBIJA nospiedis "pēdējā partija" → liekam atpakaļ rindā
+        if (!other.leaveAfterMatch) {
+          findMatch(other);
+        } else {
+          other.leaveAfterMatch = false;
+        }
+      }
+    }
+
     broadcastOnline();
   });
 });
 
-// =================== MAČA LOĢIKA ===================
+// ======================== FUNKCIJAS ========================
 
+// atrod pretinieku tajā pašā room
 function findMatch(ws) {
-  if (waiting && waiting !== ws) {
-    // NEĻAUJ spēlēt pret sevi (tas pats id vai tas pats niks)
+  const room = ws.room || "1";
+  const waitingPlayer = waiting[room];
+
+  if (waitingPlayer && waitingPlayer !== ws) {
+    // aizliegums spēlēt ar sevi
     if (
-      waiting.id === ws.id ||
-      (waiting.name && ws.name && waiting.name.toLowerCase() === ws.name.toLowerCase())
+      waitingPlayer.id === ws.id ||
+      (waitingPlayer.name && ws.name && waitingPlayer.name.toLowerCase() === ws.name.toLowerCase())
     ) {
+      // šim sakām lai pagaida citu
       send(ws, { type: "blockedSelf" });
       return;
     }
 
+    // izveidojam maču
     const matchId = Math.random().toString(36).slice(2, 9);
     const match = {
       id: matchId,
-      p1: waiting,
+      p1: waitingPlayer,
       p2: ws,
       p1move: null,
       p2move: null,
       p1score: 0,
       p2score: 0,
-      roundTimer: null
+      roundTimer: null,
+      room: room
     };
     matches.set(matchId, match);
-    waiting.matchId = matchId;
+
+    waitingPlayer.matchId = matchId;
     ws.matchId = matchId;
 
+    // paziņojam abiem
     const payload = {
       type: "matchStart",
+      room: room,
       p1: { id: match.p1.id, name: match.p1.name, score: match.p1score },
       p2: { id: match.p2.id, name: match.p2.name, score: match.p2score }
     };
     send(match.p1, payload);
     send(match.p2, payload);
 
-    waiting = null;
+    // šajā room vairs neviens negaida
+    waiting[room] = null;
   } else {
-    // nav oponenta – ieliekam rindā
-    waiting = ws;
+    // nav otra – ieliekam rindā
+    waiting[room] = ws;
+    send(ws, { type: "waiting", room });
   }
 }
 
 function handleMove(ws, move) {
   const matchId = ws.matchId;
   if (!matchId) return;
+
   const match = matches.get(matchId);
   if (!match) return;
 
-  // saglabā gājienu
+  // iereģistrējam gājienu
   if (match.p1 === ws) {
-    if (match.p1move) return; // jau nospiedis
+    if (match.p1move) return;
     match.p1move = move;
   } else if (match.p2 === ws) {
     if (match.p2move) return;
     match.p2move = move;
   }
 
-  // ja tas ir PIRMĀS puses gājiens → ieliekam 7s timeri,
-  // lai otrs, ja neuzspiež, saņem random
+  // ja tas ir pirmais gājiens šajā raundā – ieliekam 7s auto
   if (!match.roundTimer && (match.p1move || match.p2move)) {
     match.roundTimer = setTimeout(() => {
       forceFinishRound(match);
-    }, 7000); // 7 sekundes
+    }, 7000);
   }
 
-  // ja abi ir nospieduši, var uzreiz pabeigt
+  // ja abi jau ir izdarījuši gājienu → var pabeigt
   if (match.p1move && match.p2move) {
     finishRound(match);
   }
 }
 
-// ja viens nospieda, otrs – nē → šis piespiež raundu
+// ja viens neizdara gājienu – serveris ieliek random
 function forceFinishRound(match) {
   match.roundTimer = null;
   if (!match.p1move) match.p1move = randomMove();
@@ -153,16 +244,16 @@ function forceFinishRound(match) {
 }
 
 function finishRound(match) {
-  // ja bija timers – izslēdzam
+  // iztīram timeri
   if (match.roundTimer) {
     clearTimeout(match.roundTimer);
     match.roundTimer = null;
   }
 
-  // 1) vispirms parādām ❔ (lai frontam ir animācijas sākums)
+  // 1) parādam “show” lai frontends var taisīt anim
   broadcastToMatch(match, { type: "rps-show" });
 
-  // 2) pēc nelielas pauzes – atklājam abus
+  // 2) pēc mazas pauzes atklājam
   setTimeout(() => {
     const result = resolveRPS(match.p1move, match.p2move);
     let winnerName = null;
@@ -182,7 +273,7 @@ function finishRound(match) {
       winner: winnerName
     });
 
-    // sagatavojam nākamo raundu
+    // nākamajam raundam
     match.p1move = null;
     match.p2move = null;
 
@@ -190,12 +281,8 @@ function finishRound(match) {
     if (match.p1score >= 2 || match.p2score >= 2) {
       const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
 
-      // +3 punkti uz TOP
-      addToLeaderboard(
-        finalWinner.id,
-        finalWinner.name,
-        getScore(finalWinner.id) + 3
-      );
+      // +3 TOPā (vari mierīgi nomainīt uz +1)
+      addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 3);
 
       broadcastToMatch(match, {
         type: "matchEnd",
@@ -206,22 +293,30 @@ function finishRound(match) {
         p2score: match.p2score
       });
 
-      // notīram
+      // noņemam maču
       match.p1.matchId = null;
       match.p2.matchId = null;
       matches.delete(match.id);
 
-      // izsūtam atjaunināto TOP
       broadcastLeaderboard();
 
-      // abus liekam atpakaļ rindā, lai var turpināt
-      findMatch(match.p1);
-      findMatch(match.p2);
+      // p1 atpakaļ rindā?
+      if (!match.p1.leaveAfterMatch) {
+        findMatch(match.p1);
+      } else {
+        match.p1.leaveAfterMatch = false;
+      }
+
+      // p2 atpakaļ rindā?
+      if (!match.p2.leaveAfterMatch) {
+        findMatch(match.p2);
+      } else {
+        match.p2.leaveAfterMatch = false;
+      }
+
     }
   }, 900);
 }
-
-// =================== PALĪGFUNKCIJAS ===================
 
 function randomMove() {
   const arr = ["rock", "paper", "scissors"];
@@ -232,6 +327,8 @@ function broadcastToMatch(match, obj) {
   send(match.p1, obj);
   send(match.p2, obj);
 }
+
+// ======================== UTIL ========================
 
 function resolveRPS(m1, m2) {
   if (m1 === m2) return 0;
@@ -254,7 +351,16 @@ function broadcast(obj) {
 }
 
 function broadcastOnline() {
-  broadcast({ type: "online", count: clients.size });
+  const perRoom = { "1": 0, "2": 0, "3": 0 };
+  for (const c of clients) {
+    const r = c.room || "1";
+    if (perRoom[r] != null) perRoom[r]++;
+  }
+  broadcast({
+    type: "online",
+    total: clients.size,
+    rooms: perRoom
+  });
 }
 
 function addToLeaderboard(id, name, score) {
