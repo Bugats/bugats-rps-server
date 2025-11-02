@@ -1,7 +1,6 @@
 // server.js
 // Bugats RPS — 3 istabas ar rindām, best-of-3, READY, 5s prepare, 15s raunds,
 // avataru atbalsts, "pēdējā partija", auto-AFK kick, "nevar spēlēt ar sevi".
-// Render: "node server.js"
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -13,7 +12,7 @@ const clients = new Set();
 // lai viens un tas pats ID nevar atvērt 2 logus un salauzt
 const playersById = new Map();
 
-// RINDAS pa istabām (tagad masīvi, nevis viens cilvēks)
+// RINDAS pa istabām (tagad masīvi)
 const waiting = {
   "1": [],
   "2": [],
@@ -224,7 +223,6 @@ wss.on("connection", (ws) => {
 function queuePlayer(ws) {
   const room = ws.room || "1";
   const arr = waiting[room];
-  // ja jau ir rindā - neliekam otru reizi
   if (!arr.includes(ws)) {
     arr.push(ws);
   }
@@ -243,17 +241,14 @@ function removeFromQueues(ws) {
 
 function tryMatchRoom(room) {
   const arr = waiting[room];
-  // kamēr var izveidot maču
   while (arr.length >= 2) {
     const p1 = arr.shift();
-    // atrodam PRET CITU, nevis sevi pašu
     let idx = arr.findIndex(p =>
       p !== p1 &&
       p.id !== p1.id &&
       p.name.toLowerCase() !== p1.name.toLowerCase()
     );
     if (idx === -1) {
-      // nav derīga pretinieka → p1 atpakaļ rindas sākumā un stop
       arr.unshift(p1);
       break;
     }
@@ -324,7 +319,7 @@ function handleMove(ws, move) {
   const match = matches.get(matchId);
   if (!match) return;
 
-  if (match.prepTimer) return; // vēl atskaites
+  if (match.prepTimer) return;
 
   if (match.p1 === ws) {
     if (match.p1move) return;
@@ -414,7 +409,6 @@ function finishRound(match) {
       if (!match.p2.leaveAfterMatch) queuePlayer(match.p2); else match.p2.leaveAfterMatch = false;
 
     } else {
-      // jāsāk nākamais raunds → atkal ready
       match.p1ready = false;
       match.p2ready = false;
       broadcastToMatch(match, { type: "needReadyAgain" });
