@@ -6,12 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
-      --bg: #0f172a;
-      --panel: rgba(15,23,42,.65);
-      --border: rgba(148,163,184,.25);
+      --bg: #0b1120;
+      --panel: rgba(15,23,42,.55);
+      --border: rgba(148,163,184,.18);
       --text: #e2e8f0;
-      --accent: #22c55e;
-      --danger: #f43f5e;
+      --accent: #f43f5e;
+      --ok: #22c55e;
       --warn: #f97316;
     }
     * { box-sizing: border-box; }
@@ -59,7 +59,6 @@
     }
     .status { font-size: .8rem; opacity: .7; }
 
-    /* STREAMER VIEW augšējā josla */
     #topBar {
       display:flex;
       gap:1rem;
@@ -72,14 +71,8 @@
       font-size:.7rem;
       margin-bottom:.4rem;
     }
-    #kingBox {
-      display:flex;
-      gap:.35rem;
-      align-items:center;
-    }
-    #queuesMini {
-      opacity:.65;
-    }
+    #kingBox { display:flex; gap:.35rem; align-items:center; }
+    #queuesMini { opacity:.65; }
 
     .arena {
       margin-top: .6rem;
@@ -94,7 +87,7 @@
       height: 200px;
       border: 1px solid rgba(148,163,184,.3);
       border-radius: 28px;
-      background: radial-gradient(circle at 40% 20%, rgba(148,163,184,.2), rgba(15,23,42,.12));
+      background: radial-gradient(circle at 40% 20%, rgba(148,163,184,.15), rgba(15,23,42,.12));
       text-align: center;
       position: relative;
       display: flex;
@@ -139,7 +132,11 @@
       cursor: pointer;
       transition: .15s;
     }
-    .move-btn:hover { background: rgba(148,163,184,.09); transform: translateY(-2px); }
+    .move-btn:hover {
+      background: rgba(148,163,184,.09);
+      transform: translateY(-2px);
+      box-shadow: 0 0 10px rgba(244,63,94,.35);
+    }
     .icon-move {
       width: 42px;
       height: 42px;
@@ -164,17 +161,14 @@
     }
     .btn {
       border: none;
-      background: rgba(34,197,94,.18);
+      background: rgba(34,197,94,.28);
       color: #ecfdf3;
       padding: .45rem .8rem;
       border-radius: .6rem;
       cursor: pointer;
       font-size:.7rem;
     }
-    .btn[disabled] {
-      opacity:.4;
-      cursor:not-allowed;
-    }
+    .btn[disabled] { opacity:.4; cursor:not-allowed; }
     .btn-danger { background: rgba(244,63,94,.17); }
 
     #mustReady {
@@ -206,13 +200,12 @@
       z-index: 30;
     }
 
-    /* Lielais baneris strīmerim */
     #bigBanner {
       position: absolute;
       top: 35%;
       left: 50%;
       transform: translate(-50%, -50%);
-      background: radial-gradient(circle, rgba(15,23,42,.5), rgba(2,6,23,0));
+      background: linear-gradient(90deg, rgba(244,63,94,.9), rgba(249,115,22,.9));
       padding: 1.4rem 2rem;
       border-radius: 1.5rem;
       border: 1px solid rgba(236, 253, 245, .3);
@@ -222,6 +215,7 @@
       display: none;
       z-index: 50;
       pointer-events: none;
+      text-shadow: 0 0 12px rgba(0,0,0,.45);
     }
 
     #fight-anim {
@@ -260,14 +254,53 @@
     }
     .label-sm { font-size: .75rem; opacity: .65; margin-bottom: .35rem; display:block; }
 
-    .smallflex { display:flex; gap:.4rem; align-items:center; }
     .queue-box { font-size:.72rem; line-height:1.35; }
     .queue-title { font-weight:600; margin-top:.35rem; margin-bottom:.15rem; }
     .queue-empty { opacity:.5; }
 
     #logs { max-height:140px; overflow-y:auto; }
 
-    /* PLĀNŠETES */
+    /* čats */
+    #chatBox {
+      display:flex;
+      flex-direction:column;
+      gap:.4rem;
+      max-height:210px;
+    }
+    #chatMessages {
+      background: rgba(15,23,42,.25);
+      border: 1px solid rgba(148,163,184,.06);
+      border-radius: 14px;
+      padding: .4rem .5rem;
+      max-height: 140px;
+      overflow-y: auto;
+      font-size: .7rem;
+      line-height: 1.35;
+    }
+    .chat-line { margin-bottom:.3rem; }
+    .chat-name { font-weight:600; }
+    .chat-system { opacity:.6; font-style:italic; }
+    .chat-error { color:#f43f5e; }
+    #chatInput {
+      width: 100%;
+      padding: .4rem .5rem;
+      border-radius:.5rem;
+      border:1px solid rgba(148,163,184,.25);
+      background: rgba(15,23,42,.45);
+      color:#fff;
+    }
+    #chatSend { width:100%; margin-top:.3rem; }
+
+    /* pēc-mača poga bloks */
+    #postMatchBox {
+      display:none;
+      margin-top: .85rem;
+      text-align:center;
+    }
+    #postMatchBox button {
+      margin: .2rem .25rem;
+    }
+
     @media (max-width: 930px){
       .wrap { flex-direction: column; }
       .right {
@@ -276,27 +309,10 @@
         grid-template-columns: repeat(auto-fit, minmax(240px,1fr));
         gap: 1rem;
       }
-      .arena {
-        flex-wrap: nowrap;
-        gap: 1rem;
-      }
-      .player-box {
-        width: 150px;
-        height: 180px;
-      }
-      #fight-anim { top: 150px; }
     }
-
-    /* ĻOTI ŠAURI TELEFONI */
     @media (max-width: 420px){
-      .arena {
-        flex-wrap: nowrap;
-        gap: .6rem;
-      }
-      .player-box {
-        width: 135px;
-        height: 170px;
-      }
+      .arena { flex-wrap: nowrap; gap: .6rem; }
+      .player-box { width: 135px; height: 170px; }
       .question { font-size: 3.5rem; }
       #topBar { flex-direction: column; align-items:flex-start; }
     }
@@ -352,6 +368,15 @@
 
       <div id="winnerLine" style="text-align:center;margin-top:6px;font-size:.8rem;min-height:1.2rem;"></div>
 
+      <!-- pēc-mača izvēlne -->
+      <div id="postMatchBox">
+        <div style="font-size:.75rem;opacity:.6;margin-bottom:.3rem;">Ko darām tālāk?</div>
+        <button id="btnRematch" class="btn" type="button">🔁 Rematch</button>
+        <button id="btnPlayAgain" class="btn" type="button" style="background:rgba(59,130,246,.35);">▶ Spēlēt vēlreiz</button>
+        <button id="btnSpectate" class="btn btn-danger" type="button">👀 Iziet / skatīties</button>
+        <div id="postCountdown" style="font-size:.7rem;opacity:.5;margin-top:.2rem;"></div>
+      </div>
+
       <div id="msg"></div>
     </div>
 
@@ -401,11 +426,24 @@
         <div style="margin-top:.5rem;font-size:.72rem;opacity:.55;">Spēlētāju statistika:</div>
         <div id="statsBox" style="font-size:.7rem;margin-top:.25rem;line-height:1.25;"></div>
       </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:.78rem;font-weight:600;">Čats (istaba)</div>
+          <div id="chatRoomLabel" style="font-size:.68rem;opacity:.5;">1</div>
+        </div>
+        <div id="chatBox">
+          <div id="chatMessages"></div>
+          <input id="chatInput" placeholder="Uzraksti..." maxlength="120" />
+          <button id="chatSend" class="btn" type="button">Sūtīt</button>
+          <small style="opacity:.4;font-size:.62rem;">Slow mode 2s • Lamuvārdi bloķējas</small>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    // MAINI ŠO UZ SAVU RENDER URL
+    // MAINI ŠO uz savu Render WS
     const WS_URL = "wss://bugats-rps.onrender.com";
 
     let ws;
@@ -447,9 +485,21 @@
     const q3 = document.getElementById("q3");
 
     const fightBox = document.getElementById("fight-anim");
-    const fightWrap = document.getElementById("fight-wrap");
     const fightLeft = document.getElementById("fight-left");
     const fightRight = document.getElementById("fight-right");
+
+    // čats
+    const chatMessages = document.getElementById("chatMessages");
+    const chatInput = document.getElementById("chatInput");
+    const chatSend = document.getElementById("chatSend");
+    const chatRoomLabel = document.getElementById("chatRoomLabel");
+
+    // pēc mača
+    const postMatchBox = document.getElementById("postMatchBox");
+    const btnRematch = document.getElementById("btnRematch");
+    const btnPlayAgain = document.getElementById("btnPlayAgain");
+    const btnSpectate = document.getElementById("btnSpectate");
+    const postCountdown = document.getElementById("postCountdown");
 
     let countdownTimer = null;
     let countdownLeft = 0;
@@ -457,6 +507,7 @@
 
     nickEl.value = myName;
     roomSel.value = myRoom;
+    chatRoomLabel.textContent = myRoom;
 
     function connect() {
       ws = new WebSocket(WS_URL);
@@ -505,10 +556,10 @@
           break;
 
         case "announcement":
-          // rādam tikai ja tas ir mūsu istabai
           if (!data.room || data.room === myRoom) {
             showBigBanner(data.text);
             addLog(data.text);
+            addChatSystemLine(data.text);
           }
           break;
 
@@ -516,6 +567,7 @@
           iAmReady = false;
           readyBtn.disabled = false;
           mustReady.style.display = "block";
+          showPostMatch(false);
           showMsg("Atrada pretinieku istabā " + data.room);
           setP1(data.p1);
           setP2(data.p2);
@@ -555,14 +607,25 @@
           iAmReady = false;
           readyBtn.disabled = true;
           mustReady.style.display = "none";
+          // rādam pēc-mača izvēlni
+          if (data.postMenu) {
+            showPostMatch(true, data.countdown || 15);
+          }
+          break;
+
+        case "youAreSpectator":
+          showMsg("👀 Tu tagad tikai skaties (istaba " + data.room + ")");
+          showPostMatch(false);
           break;
 
         case "opponentLeft":
           showMsg("Pretinieks izgāja. Meklējam jaunu…");
+          addChatSystemLine("⚠ Pretinieks pameta maču.");
           p2name.textContent = "Gaida...";
           p2move.textContent = "?";
           p2round.textContent = "0";
           winnerLine.textContent = "";
+          showPostMatch(false);
           break;
 
         case "opponentLastGame":
@@ -579,17 +642,79 @@
 
         case "notReadyKicked":
           showMsg(data.message || "Neapstiprināji gatavs");
+          addChatSystemLine(data.message || "Neapstiprināji gatavs");
+          showPostMatch(false);
           break;
 
         case "opponentNotReady":
           showMsg(data.message || "Pretinieks nebija gatavs, meklējam jaunu");
+          addChatSystemLine(data.message || "Pretinieks nebija gatavs");
+          showPostMatch(false);
           break;
 
         case "error":
           showMsg(data.message);
           break;
+
+        // ===== ČATS =====
+        case "chat":
+          if (data && data.from) {
+            addChatLine(data.from.name, data.text);
+          }
+          break;
+        case "chatSystem":
+          addChatSystemLine(data.text);
+          break;
+        case "chatError":
+          addChatError(data.message);
+          break;
       }
     }
+
+    function showPostMatch(show, seconds) {
+      if (show) {
+        postMatchBox.style.display = "block";
+        if (seconds) {
+          let left = seconds;
+          postCountdown.textContent = "Automātiski pēc " + left + " s";
+          const t = setInterval(() => {
+            left--;
+            if (left <= 0) {
+              clearInterval(t);
+              postCountdown.textContent = "";
+              postMatchBox.style.display = "none";
+            } else {
+              postCountdown.textContent = "Automātiski pēc " + left + " s";
+            }
+          }, 1000);
+        }
+      } else {
+        postMatchBox.style.display = "none";
+        postCountdown.textContent = "";
+      }
+    }
+
+    btnRematch.addEventListener("click", () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "rematchRequest" }));
+        showMsg("Rematch pieprasīts ✅");
+        btnRematch.disabled = true;
+      }
+    });
+    btnPlayAgain.addEventListener("click", () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "playAgain" }));
+        showMsg("Ielikts rindā ✅");
+        showPostMatch(false);
+      }
+    });
+    btnSpectate.addEventListener("click", () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "leaveToSpectate" }));
+        showMsg("Tagad skatītājs 👀");
+        showPostMatch(false);
+      }
+    });
 
     function startCountdown(seconds, mode) {
       if (countdownTimer) clearInterval(countdownTimer);
@@ -661,11 +786,9 @@
     function showFightAnimation(move1, move2) {
       fightLeft.style.backgroundImage = iconForMove(move1);
       fightRight.style.backgroundImage = iconForMove(move2);
-      fightWrap.className = "fight-wrap";
       fightBox.style.display = "block";
       setTimeout(() => {
         fightBox.style.display = "none";
-        fightWrap.className = "fight-wrap";
       }, 1200);
     }
 
@@ -725,6 +848,7 @@
     roomSel.addEventListener("change", () => {
       myRoom = roomSel.value;
       localStorage.setItem("rps_room", myRoom);
+      chatRoomLabel.textContent = myRoom;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "changeRoom", room: myRoom }));
       }
@@ -777,7 +901,6 @@
       const d = document.createElement("div");
       d.textContent = text;
       logs.prepend(d);
-      // max 50
       while (logs.children.length > 50) {
         logs.removeChild(logs.lastChild);
       }
@@ -798,7 +921,55 @@
       clearTimeout(showBigBanner._t);
       showBigBanner._t = setTimeout(() => {
         bigBanner.style.display = "none";
-      }, 1600);
+      }, 4000);
+    }
+
+    // ===== ČATS klientā =====
+    chatSend.addEventListener("click", sendChat);
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    function sendChat() {
+      const txt = chatInput.value.trim();
+      if (!txt) return;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "chat", text: txt }));
+      }
+      chatInput.value = "";
+    }
+
+    function addChatLine(name, text) {
+      const div = document.createElement("div");
+      div.className = "chat-line";
+      div.innerHTML = `<span class="chat-name">${name}:</span> ${escapeHTML(text)}`;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addChatSystemLine(text) {
+      const div = document.createElement("div");
+      div.className = "chat-line chat-system";
+      div.textContent = text;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addChatError(text) {
+      const div = document.createElement("div");
+      div.className = "chat-line chat-error";
+      div.textContent = text;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function escapeHTML(s) {
+      return s.replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+      }[c]));
     }
   </script>
 </body>
