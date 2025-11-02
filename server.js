@@ -2,6 +2,7 @@
 // Bugats RPS — 3 rooms, best of 3, READY sistēma,
 // 10s sagatavošanās + 15s raunds, pēdējā partija paziņojums pretiniekam,
 // avataru sūtīšana caur WS, AFK auto-kick
+// + JAUNS: tikai 1 aktīvs savienojums uz 1 spēlētāja ID (anti-refresh juceklis)
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -9,6 +10,9 @@ const WebSocket = require("ws");
 const PORT = process.env.PORT || 3001;
 
 const clients = new Set();
+
+// jaunais: lai zinām, kurš ID jau ir online
+const playersById = new Map();
 
 // rindas pa istabām
 const waiting = {
@@ -31,13 +35,14 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (ws) => {
+  // pagaidu ID, īstais atnāks ar "hello"
   ws.id = Math.random().toString(36).slice(2, 9);
   ws.name = "Spēlētājs";
   ws.room = "1";
   ws.matchId = null;
   ws.leaveAfterMatch = false;
   ws.afkStrikes = 0;
-  ws.avatar = null; // te glabāsim dataURL
+  ws.avatar = null;
 
   clients.add(ws);
   broadcastOnline();
@@ -47,18 +52,52 @@ wss.on("connection", (ws) => {
     try { data = JSON.parse(raw); } catch (e) { return; }
 
     switch (data.type) {
+      // ================= HELLO =================
       case "hello": {
-        if (data.id) ws.id = data.id;
+        // ja atnāk ar saglabātu ID no localStorage
+        if (data.id) {
+          const newId = data.id;
+          // paskatāmies – vai nav jau tāds spēlētājs online
+          const existing = playersById.get(newId);
+          if (existing && existing !== ws) {
+            // 1) ja vecais bija rindā – izmetam no rindas
+            if (waiting[existing.room] === existing) {
+              waiting[existing.room] = null;
+            }
+            // 2) ja vecais bija mačā – pretiniekam paziņojam, ka tas “pazuda”
+            if (existing.matchId) {
+              const oldMatch = matches.get(existing.matchId);
+              if (oldMatch) {
+                const other = oldMatch.p1 === existing ? oldMatch.p2 : oldMatch.p1;
+                send(other, { type: "opponentLeft" });
+                other.matchId = null;
+                matches.delete(oldMatch.id);
+                // otru ieliekam rindā atpakaļ
+                if (!other.leaveAfterMatch) {
+                  findMatch(other);
+                } else {
+                  other.leaveAfterMatch = false;
+                }
+              }
+            }
+            // 3) veco aizveram
+            try { existing.close(); } catch (e) {}
+          }
+
+          ws.id = newId;
+          playersById.set(newId, ws);
+        }
+
         if (data.name) ws.name = sanitizeName(data.name);
         if (data.room && ["1","2","3"].includes(String(data.room))) {
           ws.room = String(data.room);
         }
         if (data.avatar) {
-          // nelielu ierobežojumu uzliekam
           if (typeof data.avatar === "string" && data.avatar.length < 200000) {
             ws.avatar = data.avatar;
           }
         }
+
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
         broadcastOnline();
         broadcastLeaderboard();
@@ -66,6 +105,7 @@ wss.on("connection", (ws) => {
         break;
       }
 
+      // ================= NICK =================
       case "setName": {
         ws.name = sanitizeName(data.name || "Spēlētājs");
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
@@ -73,10 +113,10 @@ wss.on("connection", (ws) => {
         break;
       }
 
+      // ================= AVATAR =================
       case "avatarUpload": {
         if (typeof data.avatar === "string" && data.avatar.startsWith("data:image/") && data.avatar.length < 200000) {
           ws.avatar = data.avatar;
-          // ja viņš ir mačā – paziņojam otram
           if (ws.matchId) {
             const match = matches.get(ws.matchId);
             if (match) {
@@ -88,38 +128,38 @@ wss.on("connection", (ws) => {
         break;
       }
 
+      // ================= READY =================
       case "ready": {
         if (!ws.matchId) return;
         const match = matches.get(ws.matchId);
         if (!match) return;
+
         if (match.p1 === ws) match.p1ready = true;
         if (match.p2 === ws) match.p2ready = true;
 
-        // paziņo abiem, kurš gatavs
         broadcastToMatch(match, {
           type: "readyState",
           p1ready: match.p1ready,
           p2ready: match.p2ready
         });
 
-        // ja abi gatavi -> startējam sagatavošanās 10s
         if (match.p1ready && match.p2ready) {
           startRoundWithCountdown(match);
         }
         break;
       }
 
+      // ================= MOVE =================
       case "move": {
         ws.afkStrikes = 0;
         handleMove(ws, data.move);
         break;
       }
 
+      // ================= LAST GAME =================
       case "lastGame": {
         ws.leaveAfterMatch = true;
         send(ws, { type: "lastGameAck" });
-
-        // ja viņš ir mačā – paziņojam otram
         if (ws.matchId) {
           const match = matches.get(ws.matchId);
           if (match) {
@@ -130,21 +170,17 @@ wss.on("connection", (ws) => {
         break;
       }
 
+      // ================= CHANGE ROOM =================
       case "changeRoom": {
         const newRoom = String(data.room || "1");
         if (!["1","2","3"].includes(newRoom)) return;
-
-        // ja mačā – nelaižam
         if (ws.matchId) {
           send(ws, { type: "error", message: "Nevar mainīt istabu mača laikā." });
           return;
         }
-
-        // ja rindā – izņemam
         if (waiting[ws.room] === ws) {
           waiting[ws.room] = null;
         }
-
         ws.room = newRoom;
         ws.leaveAfterMatch = false;
         findMatch(ws);
@@ -156,6 +192,11 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     clients.delete(ws);
+
+    // ja tieši šim ID mēs bijām reģistrējuši savienojumu – izņemam
+    if (playersById.get(ws.id) === ws) {
+      playersById.delete(ws.id);
+    }
 
     if (waiting[ws.room] === ws) {
       waiting[ws.room] = null;
@@ -181,7 +222,7 @@ wss.on("connection", (ws) => {
   });
 });
 
-// ================= LOĢIKA =================
+// ================= MAČU LOĢIKA =================
 
 function findMatch(ws) {
   const room = ws.room || "1";
@@ -217,7 +258,6 @@ function findMatch(ws) {
     w.matchId = matchId;
     ws.matchId = matchId;
 
-    // sūtam abiem: mačs izveidots, bet jāspiež "gatavs"
     const payload = {
       type: "matchStart",
       needReady: true,
@@ -236,9 +276,7 @@ function findMatch(ws) {
 }
 
 function startRoundWithCountdown(match) {
-  // vispirms 10 sek sagatavošanās
   broadcastToMatch(match, { type: "roundPrepare", in: 10 });
-  // ja bija kāds vecs timers – noņemam
   if (match.prepTimer) clearTimeout(match.prepTimer);
   match.prepTimer = setTimeout(() => {
     startRealRound(match);
@@ -252,7 +290,6 @@ function startRealRound(match) {
 
   broadcastToMatch(match, { type: "roundStart", duration: 15 });
 
-  // 15 sek raunda laiks
   if (match.roundTimer) clearTimeout(match.roundTimer);
   match.roundTimer = setTimeout(() => {
     forceFinishRound(match);
@@ -265,7 +302,7 @@ function handleMove(ws, move) {
   const match = matches.get(matchId);
   if (!match) return;
 
-  // ja raunds vēl nav sācies (gatavošanās fāze) – ignorējam
+  // ja vēl sagatavošanās – nelaižam
   if (match.prepTimer) return;
 
   if (match.p1 === ws) {
@@ -276,7 +313,6 @@ function handleMove(ws, move) {
     match.p2move = move;
   }
 
-  // ja abi ir nospieduši – pabeidzam pirms 15s
   if (match.p1move && match.p2move) {
     finishRound(match);
   }
@@ -285,15 +321,15 @@ function handleMove(ws, move) {
 function forceFinishRound(match) {
   match.roundTimer = null;
 
-  // ja kāds nenospieda – ieliekam random un skaitām kā AFK
   if (!match.p1move) {
     match.p1move = randomMove();
     match.p1.afkStrikes = (match.p1.afkStrikes || 0) + 1;
     if (match.p1.afkStrikes >= 3) {
       kickForAfk(match.p1);
-      return; // mačs tiks izjaukts on close
+      return;
     }
   }
+
   if (!match.p2move) {
     match.p2move = randomMove();
     match.p2.afkStrikes = (match.p2.afkStrikes || 0) + 1;
@@ -308,17 +344,15 @@ function forceFinishRound(match) {
 
 function kickForAfk(ws) {
   send(ws, { type: "kicked", reason: "AFK 3x" });
-  ws.close();
+  try { ws.close(); } catch(e) {}
 }
 
 function finishRound(match) {
-  // noņemam raunda taimeri
   if (match.roundTimer) {
     clearTimeout(match.roundTimer);
     match.roundTimer = null;
   }
 
-  // vispirms pasakām klientiem "rādām gājienus"
   broadcastToMatch(match, { type: "rps-show" });
 
   setTimeout(() => {
@@ -340,11 +374,11 @@ function finishRound(match) {
       winner: winnerName
     });
 
-    // vai mačs beidzies?
+    // best of 3 pabeigts?
     if (match.p1score >= 2 || match.p2score >= 2) {
       const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
 
-      // ŠEIT tagad +1 punkts, nevis +3
+      // +1 punkts
       addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 1);
 
       broadcastToMatch(match, {
@@ -363,7 +397,6 @@ function finishRound(match) {
 
       broadcastLeaderboard();
 
-      // pēc mača – atpakaļ rindā vai beidz
       if (!match.p1.leaveAfterMatch) {
         findMatch(match.p1);
       } else {
@@ -376,12 +409,10 @@ function finishRound(match) {
       }
 
     } else {
-      // turpinām, bet atkal jābūt ready
+      // mačs turpinās – atkal jāspiež gatavs
       match.p1ready = false;
       match.p2ready = false;
-      broadcastToMatch(match, {
-        type: "needReadyAgain"
-      });
+      broadcastToMatch(match, { type: "needReadyAgain" });
     }
 
   }, 800);
