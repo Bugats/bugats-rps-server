@@ -254,6 +254,9 @@
         <span id="roundInfo"></span>
       </div>
 
+      <!-- FIKSĒTĀ RINDA UZVARĒTĀJAM -->
+      <div id="winnerLine" style="text-align:center;margin-top:6px;font-size:.8rem;min-height:1.2rem;"></div>
+
       <div id="msg"></div>
     </div>
 
@@ -331,6 +334,7 @@
     const toplistEl = document.getElementById("toplist");
     const onlineInfoEl = document.getElementById("onlineInfo");
     const msg = document.getElementById("msg");
+    const winnerLine = document.getElementById("winnerLine");
 
     const q1 = document.getElementById("q1");
     const q2 = document.getElementById("q2");
@@ -393,6 +397,7 @@
           p2move.textContent = "?";
           p1round.textContent = "0";
           p2round.textContent = "0";
+          winnerLine.textContent = "";
           break;
 
         case "matchStart":
@@ -402,6 +407,7 @@
           p1round.textContent = data.p1.score || "0";
           p2round.textContent = data.p2.score || "0";
           roundInfo.textContent = "Abiem jāspiež 'Gatavs'";
+          winnerLine.textContent = "";
           break;
 
         case "readyState":
@@ -412,6 +418,8 @@
           startCountdown(data.in, "prepare");
           p1move.textContent = "?";
           p2move.textContent = "?";
+          // jauns raunds – notīrām iepriekšējo uzvarētāju
+          winnerLine.textContent = "";
           break;
 
         case "roundStart":
@@ -440,6 +448,7 @@
           p2name.textContent = "Gaida...";
           p2move.textContent = "?";
           p2round.textContent = "0";
+          winnerLine.textContent = "";
           break;
 
         case "opponentLastGame":
@@ -515,8 +524,15 @@
 
       showFightAnimation(msg.p1.move, msg.p2.move, msg.winner);
 
-      if (msg.winner) showMsg("🎉 " + msg.winner + " uzvarēja raundu!");
-      else showMsg("⚖ Neizšķirts");
+      if (msg.winner) {
+        showMsg("🎉 " + msg.winner + " uzvarēja raundu!");
+        winnerLine.textContent = "🎉 " + msg.winner + " uzvarēja šo raundu";
+        winnerLine.style.color = "#ecfdf3";
+      } else {
+        showMsg("⚖ Neizšķirts");
+        winnerLine.textContent = "⚖ Neizšķirts";
+        winnerLine.style.color = "#e2e8f0";
+      }
     }
 
     function emojiFromMove(m) {
