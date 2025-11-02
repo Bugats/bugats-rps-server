@@ -1,9 +1,10 @@
 // server.js
-// Bugats RPS — 3 istabas ar rindām, best-of-3, "Gatavs" tikai mača sākumā,
-// 10 s prepare + 15 s cīņa, avatars, pēdējā partija, AFK, nevar spēlēt ar sevi,
-// A variants: statistika RAMā (wins, loses, matches, streak, bestStreak)
-// + streamer view: broadcast uzvaras uz istabu, "dienas karalis",
-// + auto-kick ja 15s laikā nav gatavs.
+// Bugats RPS ar 3 istabām, rindām, best-of-3,
+// 10s prepare + 15s cīņa, "Es esmu gatavs" tikai sākumā,
+// avataru augšupielāde, auto-kick ja 15s nav gatavs,
+// “dienas karalis”, broadcast uzvaras,
+// ČATS per istaba,
+// + PĒC-MAČA POGAS: rematch / spēlēt vēlreiz / iziet (spectate)
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -23,16 +24,25 @@ const waiting = {
 // mači pēc id
 const matches = new Map();
 
-// leaderboard (tavi “lielie” punkti)
+// leaderboard
 const leaderboard = new Map();
 
-// A variants — statistika RAMā
-// struktūra: { id, name, wins, loses, matches, streak, bestStreak }
+// statistika RAMā
 const playerStats = new Map();
 
-// “Dienas” uzvaras RAMā
-const dailyWins = new Map(); // id -> winsToday
-let todayKing = null; // { id, name, wins }
+// “dienas” uzvaras
+const dailyWins = new Map();
+let todayKing = null;
+
+// čata slow-mode
+const chatSlow = new Map();
+
+// primitīvs filtrs
+const BAD_WORDS = [
+  "dir", "dirš", "pimp", "nah", "nahui", "nahuj",
+  "bļ", "pizd", "pidr", "hlam", "fuck", "shit",
+  "http://", "https://"
+];
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -53,7 +63,7 @@ wss.on("connection", (ws) => {
   clients.add(ws);
   broadcastOnline();
   broadcastQueues();
-  // ja jau ir dienas karalis – pasakām jaunpienācējam
+
   if (todayKing) {
     send(ws, { type: "dailyKing", king: todayKing });
   }
@@ -69,13 +79,13 @@ wss.on("connection", (ws) => {
         if (data.id) {
           const existing = playersById.get(data.id);
           if (existing && existing !== ws) {
-            // izmetam veco
             removeFromQueues(existing);
             if (existing.matchId) {
               const m = matches.get(existing.matchId);
               if (m) {
                 const other = m.p1 === existing ? m.p2 : m.p1;
                 send(other, { type: "opponentLeft" });
+                sendChatSystem(m.room, `⚠ ${existing.name} atvienojās.`);
                 other.matchId = null;
                 matches.delete(m.id);
                 if (!other.leaveAfterMatch) queuePlayer(other);
@@ -86,7 +96,6 @@ wss.on("connection", (ws) => {
           ws.id = data.id;
           playersById.set(data.id, ws);
         }
-
         if (data.name) ws.name = sanitizeName(data.name);
         if (data.room && ["1","2","3"].includes(String(data.room))) {
           ws.room = String(data.room);
@@ -97,9 +106,7 @@ wss.on("connection", (ws) => {
           }
         }
 
-        // sinhronizējam statistiku
         getPlayerStats(ws.id, ws.name);
-
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
         broadcastLeaderboard();
 
@@ -108,27 +115,26 @@ wss.on("connection", (ws) => {
         break;
       }
 
-      // ===== SET NAME =====
+      // ===== MAINĪT NIKU =====
       case "setName": {
         ws.name = sanitizeName(data.name || "Spēlētājs");
         addToLeaderboard(ws.id, ws.name, getScore(ws.id));
-        // atjaunojam arī statistikas vārdu
         getPlayerStats(ws.id, ws.name);
         broadcastLeaderboard();
         broadcastQueues();
         break;
       }
 
-      // ===== AVATAR =====
+      // ===== AVATĀRS =====
       case "avatarUpload": {
         if (typeof data.avatar === "string" &&
             data.avatar.startsWith("data:image/") &&
             data.avatar.length < 200000) {
           ws.avatar = data.avatar;
           if (ws.matchId) {
-            const match = matches.get(ws.matchId);
-            if (match) {
-              const other = match.p1 === ws ? match.p2 : match.p1;
+            const m = matches.get(ws.matchId);
+            if (m) {
+              const other = m.p1 === ws ? m.p2 : m.p1;
               send(other, { type: "opponentAvatar", avatar: ws.avatar });
             }
           }
@@ -140,7 +146,7 @@ wss.on("connection", (ws) => {
       case "ready": {
         if (!ws.matchId) return;
         const match = matches.get(ws.matchId);
-        if (!match) return;
+        if (!match || match.ended) return;
 
         if (match.p1 === ws) match.p1ready = true;
         else if (match.p2 === ws) match.p2ready = true;
@@ -151,7 +157,6 @@ wss.on("connection", (ws) => {
           p2ready: match.p2ready
         });
 
-        // ja abi gatavi – atceļam auto-kick un sākam
         if (match.p1ready && match.p2ready) {
           if (match.readyTimeout) {
             clearTimeout(match.readyTimeout);
@@ -169,21 +174,21 @@ wss.on("connection", (ws) => {
         break;
       }
 
-      // ===== LAST GAME =====
+      // ===== PĒDĒJĀ PARTIJA =====
       case "lastGame": {
         ws.leaveAfterMatch = true;
         send(ws, { type: "lastGameAck" });
         if (ws.matchId) {
-          const match = matches.get(ws.matchId);
-          if (match) {
-            const other = match.p1 === ws ? match.p2 : match.p1;
+          const m = matches.get(ws.matchId);
+          if (m) {
+            const other = m.p1 === ws ? m.p2 : m.p1;
             send(other, { type: "opponentLastGame", name: ws.name });
           }
         }
         break;
       }
 
-      // ===== CHANGE ROOM =====
+      // ===== MAINĪT ISTABU =====
       case "changeRoom": {
         const newRoom = String(data.room || "1");
         if (!["1","2","3"].includes(newRoom)) return;
@@ -196,6 +201,31 @@ wss.on("connection", (ws) => {
         ws.leaveAfterMatch = false;
         queuePlayer(ws);
         broadcastOnline();
+        break;
+      }
+
+      // ===== ČATS =====
+      case "chat": {
+        const text = String(data.text || "").trim();
+        handleChat(ws, text);
+        break;
+      }
+
+      // ===== REMATCH =====
+      case "rematchRequest": {
+        handlePostMatchChoice(ws, "rematch");
+        break;
+      }
+
+      // ===== SPĒLĒT VĒLREIZ =====
+      case "playAgain": {
+        handlePostMatchChoice(ws, "queue");
+        break;
+      }
+
+      // ===== IZ IET / SKATĪTIES =====
+      case "leaveToSpectate": {
+        handlePostMatchChoice(ws, "spectate");
         break;
       }
 
@@ -212,12 +242,13 @@ wss.on("connection", (ws) => {
     removeFromQueues(ws);
 
     if (ws.matchId) {
-      const match = matches.get(ws.matchId);
-      if (match) {
-        const other = match.p1 === ws ? match.p2 : match.p1;
+      const m = matches.get(ws.matchId);
+      if (m) {
+        const other = m.p1 === ws ? m.p2 : m.p1;
         send(other, { type: "opponentLeft" });
+        sendChatSystem(m.room, `⚠ ${ws.name} pameta maču.`);
         other.matchId = null;
-        matches.delete(match.id);
+        matches.delete(m.id);
         if (!other.leaveAfterMatch) queuePlayer(other);
       }
     }
@@ -227,9 +258,46 @@ wss.on("connection", (ws) => {
   });
 });
 
+// ===== ČATS =====
+function handleChat(ws, text) {
+  if (!text) return;
+  const now = Date.now();
+  const last = chatSlow.get(ws.id) || 0;
+  if (now - last < 2000) {
+    send(ws, { type: "chatError", message: "Slow mode 2s" });
+    return;
+  }
+  if (text.length > 120) {
+    send(ws, { type: "chatError", message: "Ziņa par gara (max 120)" });
+    return;
+  }
+  const lowered = text.toLowerCase();
+  for (const bad of BAD_WORDS) {
+    if (lowered.includes(bad)) {
+      send(ws, { type: "chatError", message: "Ziņa nav atļauta" });
+      return;
+    }
+  }
+  chatSlow.set(ws.id, now);
+
+  const room = ws.room || "1";
+  broadcastToRoom(room, {
+    type: "chat",
+    from: { id: ws.id, name: ws.name },
+    text,
+    ts: now
+  });
+}
+
+function sendChatSystem(room, text) {
+  broadcastToRoom(room, {
+    type: "chatSystem",
+    text,
+    ts: Date.now()
+  });
+}
 
 // ===== RINDAS =====
-
 function queuePlayer(ws) {
   const room = ws.room || "1";
   const arr = waiting[room];
@@ -283,6 +351,10 @@ function createMatch(room, p1, p2) {
     prepTimer: null,
     roundTimer: null,
     readyTimeout: null,
+    ended: false,
+    p1Post: "none",
+    p2Post: "none",
+    endTimeout: null,
   };
   matches.set(matchId, match);
   p1.matchId = matchId;
@@ -298,7 +370,8 @@ function createMatch(room, p1, p2) {
   send(p1, payload);
   send(p2, payload);
 
-  // AUTO-KICK ja 15s laikā nav gatavi
+  sendChatSystem(room, `🎮 Jauns mačs: ${p1.name} vs ${p2.name}`);
+
   match.readyTimeout = setTimeout(() => {
     checkNotReadyTimeout(match.id);
   }, 15000);
@@ -306,15 +379,11 @@ function createMatch(room, p1, p2) {
   broadcastQueues();
 }
 
-
-// ===== RAUNDS =====
-
 function checkNotReadyTimeout(matchId) {
   const match = matches.get(matchId);
-  if (!match) return;
-  if (match.p1ready && match.p2ready) return; // abi jau gatavi
+  if (!match || match.ended) return;
+  if (match.p1ready && match.p2ready) return;
 
-  // kāds nav gatavs → atmetam maču
   const notReady = [];
   const readyOnes = [];
   if (!match.p1ready) notReady.push(match.p1);
@@ -324,6 +393,7 @@ function checkNotReadyTimeout(matchId) {
 
   notReady.forEach(pl => {
     send(pl, { type: "notReadyKicked", message: "Tu 15s neapstiprināji GATAVS" });
+    sendChatSystem(pl.room || match.room, `⚠ ${pl.name} tika izmests – nebija gatavs.`);
     pl.matchId = null;
     if (!pl.leaveAfterMatch) queuePlayer(pl); else pl.leaveAfterMatch = false;
   });
@@ -363,10 +433,8 @@ function handleMove(ws, move) {
   const matchId = ws.matchId;
   if (!matchId) return;
   const match = matches.get(matchId);
-  if (!match) return;
+  if (!match || match.ended) return;
   if (match.prepTimer) return;
-
-  // tikai 3 atļautie
   if (!["rock","paper","scissors"].includes(move)) return;
 
   if (match.p1 === ws) {
@@ -406,7 +474,7 @@ function forceFinishRound(match) {
 
 function kickForAfk(ws) {
   send(ws, { type: "kicked", reason: "AFK 3x" });
-  try { ws.close(); } catch (e) { }
+  try { ws.close(); } catch (e) {}
 }
 
 function finishRound(match) {
@@ -435,100 +503,165 @@ function finishRound(match) {
       winner: winnerName
     });
 
-    // mačs beidzies?
     if (match.p1score >= 2 || match.p2score >= 2) {
-      const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
-      const loser = match.p1 === finalWinner ? match.p2 : match.p1;
-      const room = match.room;
-
-      // leaderboardā +1 lielais punkts
-      addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 1);
-
-      // A variants: atjaunojam statistiku abiem
-      const winnerStats = getPlayerStats(finalWinner.id, finalWinner.name);
-      winnerStats.wins += 1;
-      winnerStats.matches += 1;
-      winnerStats.streak += 1;
-      if (winnerStats.streak > winnerStats.bestStreak) {
-        winnerStats.bestStreak = winnerStats.streak;
-      }
-
-      const loserStats = getPlayerStats(loser.id, loser.name);
-      loserStats.loses += 1;
-      loserStats.matches += 1;
-      loserStats.streak = 0;
-
-      // “Dienas” uzvaras
-      const prev = dailyWins.get(finalWinner.id) || 0;
-      const now = prev + 1;
-      dailyWins.set(finalWinner.id, now);
-      let newKing = false;
-      if (!todayKing || now > todayKing.wins) {
-        todayKing = { id: finalWinner.id, name: finalWinner.name, wins: now };
-        newKing = true;
-      }
-
-      // nosūtām abiem, ka mačs beidzies
-      broadcastToMatch(match, {
-        type: "matchEnd",
-        winner: finalWinner.name,
-        p1: match.p1.name,
-        p2: match.p2.name,
-        p1score: match.p1score,
-        p2score: match.p2score,
-        countdown: 15
-      });
-
-      // nosūtām abu statiskos datus klientiem
-      broadcastToMatch(match, {
-        type: "playerStats",
-        players: [
-          winnerStats,
-          loserStats
-        ]
-      });
-
-      // BROADCAST UZ ISTABU (streamer view): kurš uzvarēja
-      broadcastToRoom(room, {
-        type: "announcement",
-        room,
-        text: `🏆 ${finalWinner.name} uzvarēja ${loser.name} (${match.p1score}:${match.p2score}) istabā ${room}`
-      });
-
-      // ja jauns karalis – visiem!
-      if (newKing) {
-        broadcast({
-          type: "dailyKing",
-          king: todayKing
-        });
-      }
-
-      // notīram timerus
-      if (match.prepTimer) clearTimeout(match.prepTimer);
-      if (match.roundTimer) clearTimeout(match.roundTimer);
-      if (match.readyTimeout) clearTimeout(match.readyTimeout);
-
-      match.p1.matchId = null;
-      match.p2.matchId = null;
-      matches.delete(match.id);
-
-      broadcastLeaderboard();
-      broadcastQueues();
-
-      if (!match.p1.leaveAfterMatch) queuePlayer(match.p1); else match.p1.leaveAfterMatch = false;
-      if (!match.p2.leaveAfterMatch) queuePlayer(match.p2); else match.p2.leaveAfterMatch = false;
-
+      endFullMatch(match);
     } else {
-      // mačs nav beidzies → nākamais raunds automātiski
       startRoundWithCountdown(match);
     }
 
   }, 800);
 }
 
+function endFullMatch(match) {
+  match.ended = true;
+
+  const finalWinner = match.p1score > match.p2score ? match.p1 : match.p2;
+  const loser = match.p1 === finalWinner ? match.p2 : match.p1;
+  const room = match.room;
+
+  // leaderboard +1
+  addToLeaderboard(finalWinner.id, finalWinner.name, getScore(finalWinner.id) + 1);
+
+  // statistika
+  const wStats = getPlayerStats(finalWinner.id, finalWinner.name);
+  wStats.wins += 1;
+  wStats.matches += 1;
+  wStats.streak += 1;
+  if (wStats.streak > wStats.bestStreak) wStats.bestStreak = wStats.streak;
+
+  const lStats = getPlayerStats(loser.id, loser.name);
+  lStats.loses += 1;
+  lStats.matches += 1;
+  lStats.streak = 0;
+
+  // dienas karalis
+  const prev = dailyWins.get(finalWinner.id) || 0;
+  const now = prev + 1;
+  dailyWins.set(finalWinner.id, now);
+  let newKing = false;
+  if (!todayKing || now > todayKing.wins) {
+    todayKing = { id: finalWinner.id, name: finalWinner.name, wins: now };
+    newKing = true;
+  }
+
+  // paziņojums abiem + post-mača režīms
+  broadcastToMatch(match, {
+    type: "matchEnd",
+    winner: finalWinner.name,
+    p1: match.p1.name,
+    p2: match.p2.name,
+    p1score: match.p1score,
+    p2score: match.p2score,
+    postMenu: true,
+    countdown: 15
+  });
+
+  // istabas announcement + čats
+  const winText = `🏆 ${finalWinner.name} uzvarēja ${loser.name} (${match.p1score}:${match.p2score}) istabā ${room}`;
+  broadcastToRoom(room, {
+    type: "announcement",
+    room,
+    text: winText
+  });
+  sendChatSystem(room, winText);
+
+  if (newKing) {
+    broadcast({
+      type: "dailyKing",
+      king: todayKing
+    });
+  }
+
+  broadcastLeaderboard();
+  broadcastQueues();
+
+  // tagad 15 sekundes gaidām spēlētāju izvēles (rematch / queue / spectate)
+  match.endTimeout = setTimeout(() => {
+    finalizePostMatch(match.id);
+  }, 15000);
+}
+
+function handlePostMatchChoice(ws, choice) {
+  // choice: "rematch" | "queue" | "spectate"
+  const matchId = ws.matchId;
+  if (!matchId) {
+    // ja nav mača, un viņš teica "playAgain" → ieliekam rindā
+    if (choice === "queue") {
+      ws.leaveAfterMatch = false;
+      queuePlayer(ws);
+    }
+    return;
+  }
+  const match = matches.get(matchId);
+  if (!match || !match.ended) return;
+
+  if (match.p1 === ws) {
+    match.p1Post = choice;
+  } else if (match.p2 === ws) {
+    match.p2Post = choice;
+  }
+
+  // ja abi izvēlējās rematch → uzreiz
+  if (match.p1Post === "rematch" && match.p2Post === "rematch") {
+    // notīram timeout
+    if (match.endTimeout) clearTimeout(match.endTimeout);
+    startRematch(match);
+  }
+}
+
+function startRematch(oldMatch) {
+  const room = oldMatch.room;
+  const p1 = oldMatch.p1;
+  const p2 = oldMatch.p2;
+  // notīram veco
+  matches.delete(oldMatch.id);
+  p1.matchId = null;
+  p2.matchId = null;
+  // izveidojam jaunu ar tiem pašiem
+  createMatch(room, p1, p2);
+}
+
+function finalizePostMatch(matchId) {
+  const match = matches.get(matchId);
+  if (!match) return;
+
+  const p1 = match.p1;
+  const p2 = match.p2;
+
+  // ja kāds nav iesniedzis izvēli – default = "queue"
+  if (match.p1Post === "none") match.p1Post = "queue";
+  if (match.p2Post === "none") match.p2Post = "queue";
+
+  // atkarībā no izvēles
+  handleOnePost(p1, match.p1Post, match.room);
+  handleOnePost(p2, match.p2Post, match.room);
+
+  matches.delete(matchId);
+  broadcastQueues();
+}
+
+function handleOnePost(player, choice, room) {
+  if (!player) return;
+  player.matchId = null;
+  if (choice === "spectate") {
+    player.leaveAfterMatch = true;
+    send(player, { type: "youAreSpectator", room });
+    // viņš paliek istabā, bet nav rindā
+    return;
+  }
+  if (choice === "queue") {
+    player.leaveAfterMatch = false;
+    queuePlayer(player);
+    return;
+  }
+  if (choice === "rematch") {
+    // ja otrs negribēja rematch, mēs viņu ieliksim rindā
+    player.leaveAfterMatch = false;
+    queuePlayer(player);
+  }
+}
 
 // ===== UTIL =====
-
 function randomMove() {
   const arr = ["rock", "paper", "scissors"];
   return arr[Math.floor(Math.random() * arr.length)];
@@ -601,7 +734,6 @@ function broadcastLeaderboard() {
   broadcast({ type: "leaderboard", list });
 }
 
-// A variants — dabū vai izveido statistiku
 function getPlayerStats(id, name) {
   if (!playerStats.has(id)) {
     playerStats.set(id, {
