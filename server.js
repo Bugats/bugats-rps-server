@@ -1,8 +1,13 @@
-// thezone-zole-server (MVP) — Bugats edition
-// Online 3-player Zole with fairness: commit-reveal + deterministic Fisher-Yates shuffle
-// Deck: A,K,Q,J,10,9 of all suits + 8♦,7♦ (26 cards)
-// Trumps: all ♦ + all Q/J (any suit)
-// Scoring: A=11,10=10,K=4,Q=3,J=2 else 0 ; solo wins if >=61
+/* =========================
+   THEZONE — ZOLE SERVER (MVP+ UI-ready)
+   - 3-spēlētāju istabas
+   - READY lobby
+   - commit-reveal fairness (server commit + 3 client seeds -> deterministisks shuffle)
+   - BIDDING: PASS/TAKE (MVP)
+   - SKAT: soloists paņem talonu un atmet 2
+   - PLAY: 8 stiķi, servera validācija + punktu skaitīšana
+   - Public state + privātā roka katram spēlētājam
+   ========================= */
 
 const express = require("express");
 const http = require("http");
@@ -10,929 +15,797 @@ const cors = require("cors");
 const crypto = require("crypto");
 const { Server } = require("socket.io");
 
-const PORT = process.env.PORT || 10090;
+// ====== ENV ======
+const PORT = process.env.PORT || 10080;
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || "https://thezone.lv,https://www.thezone.lv,http://localhost:5173,http://localhost:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
-const CORS_ORIGINS =
-  process.env.CORS_ORIGINS ||
-  "https://thezone.lv,https://www.thezone.lv,http://localhost:3000,http://127.0.0.1:5500,http://localhost:5500";
+function sha256Hex(s) {
+  return crypto.createHash("sha256").update(String(s)).digest("hex");
+}
 
-const ORIGINS = CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
+function safeStr(s, max = 32) {
+  return String(s || "").trim().slice(0, max);
+}
 
-// -------------------- Express --------------------
-const app = express();
+function safeRoomId(s) {
+  return safeStr(s, 12).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
 
-app.use(
-  cors({
-    origin(origin, cb) {
-      // allow server-to-server / curl / no-origin
-      if (!origin) return cb(null, true);
-      if (ORIGINS.includes(origin)) return cb(null, true);
-      return cb(new Error("CORS blocked: " + origin));
-    },
-    credentials: true
-  })
-);
+function nowMs() {
+  return Date.now();
+}
 
-app.get("/", (req, res) => {
-  res.type("text/plain").send("thezone-zole-server OK");
-});
+// ====== CARD MODEL ======
+/**
+ * Card ID format: e.g. "QH", "10D", "8D"
+ * suits: C,S,H,D
+ * ranks: A,K,Q,J,10,9 (+ 8D,7D only)
+ */
 
-app.get("/health", (req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
+const SUIT_SYMBOL = { C: "♣", S: "♠", H: "♥", D: "♦" };
+const SUIT_NAME = { C: "CLUBS", S: "SPADES", H: "HEARTS", D: "DIAMONDS" };
 
-const server = http.createServer(app);
+const BASE_RANKS = ["A", "K", "Q", "J", "10", "9"];
 
-// -------------------- Socket.IO --------------------
-const io = new Server(server, {
-  cors: {
-    origin: ORIGINS,
-    methods: ["GET", "POST"],
-    credentials: true
+function makeDeck() {
+  const deck = [];
+  for (const s of ["C", "S", "H", "D"]) {
+    for (const r of BASE_RANKS) deck.push(cardId(r, s));
   }
-});
-
-// -------------------- Helpers --------------------
-function sha256Hex(input) {
-  return crypto.createHash("sha256").update(String(input)).digest("hex");
-}
-function randHex(bytes = 32) {
-  return crypto.randomBytes(bytes).toString("hex");
+  // papildus 8♦ un 7♦
+  deck.push(cardId("8", "D"));
+  deck.push(cardId("7", "D"));
+  // kopā 26
+  return deck;
 }
 
-function normalizeRoomId(id) {
-  return String(id || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9_-]/g, "")
-    .slice(0, 12);
+function cardId(rank, suit) {
+  return `${rank}${suit}`;
 }
 
-function sanitizeUsername(u) {
-  let s = String(u || "").trim();
-  if (!s) s = "Guest";
-  s = s.slice(0, 16);
-  // allow letters/numbers/_/-
-  try {
-    s = s.replace(/[^\p{L}\p{N}_-]/gu, "");
-  } catch {
-    s = s.replace(/[^a-zA-Z0-9_-]/g, "");
+function parseCardId(id) {
+  const s = String(id || "").trim().toUpperCase();
+  if (!s) return null;
+
+  // "10D" vai "QH" vai "8D"
+  let suit = s.slice(-1);
+  let rank = s.slice(0, -1);
+
+  if (!SUIT_SYMBOL[suit]) return null;
+  if (rank === "8" || rank === "7") {
+    if (suit !== "D") return null; // tikai 8D/7D
+  } else if (!BASE_RANKS.includes(rank)) {
+    return null;
   }
-  if (!s) s = "Guest";
-  return s;
+
+  return { id: s, rank, suit };
 }
 
-// Deterministic PRNG from a string seed (sha256 -> uint32 -> mulberry32)
-function seedToUint32(seedStr) {
-  const h = crypto.createHash("sha256").update(seedStr).digest();
-  return h.readUInt32LE(0);
+// ====== ZOLE TRUMPS & RANKING ======
+// Trumps: all Queens + all Jacks + all Diamonds
+function isTrump(card) {
+  if (!card) return false;
+  const { rank, suit } = typeof card === "string" ? parseCardId(card) || {} : card;
+  if (!rank || !suit) return false;
+  if (rank === "Q" || rank === "J") return true;
+  if (suit === "D") return true;
+  return false;
 }
-function mulberry32(a) {
+
+// Trump order (highest -> lowest):
+// Q♣ Q♠ Q♥ Q♦ J♣ J♠ J♥ J♦ A♦ 10♦ K♦ 9♦ 8♦ 7♦
+const TRUMP_ORDER = [
+  "QC", "QS", "QH", "QD",
+  "JC", "JS", "JH", "JD",
+  "AD", "10D", "KD", "9D", "8D", "7D"
+];
+const TRUMP_RANK = new Map(TRUMP_ORDER.map((id, idx) => [id, TRUMP_ORDER.length - idx])); // higher number = stronger
+
+// Non-trump suit order: A 10 K Q J 9
+const SUIT_ORDER = ["A", "10", "K", "Q", "J", "9"];
+const SUIT_RANK = new Map(SUIT_ORDER.map((r, idx) => [r, SUIT_ORDER.length - idx]));
+
+// For following suit: if lead is non-trump suit C/S/H, only non-trump cards of that suit count as "suit"
+function isPureSuitCard(card, suit) {
+  const c = typeof card === "string" ? parseCardId(card) : card;
+  if (!c) return false;
+  if (c.suit !== suit) return false;
+  if (isTrump(c)) return false; // Q/J are trumps, not suit-follow
+  return true;
+}
+
+function getLegalCards(handIds, trick) {
+  // trick: { leadSeat, leadCardId, leadSuit, cards:[{seat, cardId}] }
+  const hand = (handIds || []).filter(Boolean);
+
+  if (!trick || !trick.cards || trick.cards.length === 0) {
+    return new Set(hand);
+  }
+
+  const leadCardId = trick.cards[0]?.cardId || trick.leadCardId;
+  const leadCard = parseCardId(leadCardId);
+  if (!leadCard) return new Set(hand);
+
+  const leadIsTrump = isTrump(leadCard);
+  const leadSuit = leadIsTrump ? null : leadCard.suit;
+
+  if (leadIsTrump) {
+    // jāmet trumpis, ja ir
+    const trumps = hand.filter((id) => isTrump(parseCardId(id)));
+    if (trumps.length > 0) return new Set(trumps);
+    return new Set(hand);
+  } else {
+    // jāseko mastam, ja ir tīras (ne-trump) kārtis šajā mastā
+    const suitCards = hand.filter((id) => isPureSuitCard(parseCardId(id), leadSuit));
+    if (suitCards.length > 0) return new Set(suitCards);
+    return new Set(hand);
+  }
+}
+
+function compareCardsForTrick(aId, bId, leadCardId) {
+  // returns >0 if a wins over b in same trick context
+  const a = parseCardId(aId);
+  const b = parseCardId(bId);
+  const lead = parseCardId(leadCardId);
+  if (!a || !b || !lead) return 0;
+
+  const aTrump = isTrump(a);
+  const bTrump = isTrump(b);
+  const leadTrump = isTrump(lead);
+  const leadSuit = leadTrump ? null : lead.suit;
+
+  if (aTrump && bTrump) {
+    return (TRUMP_RANK.get(a.id) || 0) - (TRUMP_RANK.get(b.id) || 0);
+  }
+  if (aTrump && !bTrump) return 1;
+  if (!aTrump && bTrump) return -1;
+
+  // neither trump
+  // only lead suit matters
+  if (a.suit === leadSuit && b.suit !== leadSuit) return 1;
+  if (a.suit !== leadSuit && b.suit === leadSuit) return -1;
+  if (a.suit !== leadSuit && b.suit !== leadSuit) return 0;
+
+  // same lead suit
+  return (SUIT_RANK.get(a.rank) || 0) - (SUIT_RANK.get(b.rank) || 0);
+}
+
+function cardPoints(cardIdStr) {
+  const c = parseCardId(cardIdStr);
+  if (!c) return 0;
+  switch (c.rank) {
+    case "A": return 11;
+    case "10": return 10;
+    case "K": return 4;
+    case "Q": return 3;
+    case "J": return 2;
+    default: return 0; // 9,8,7
+  }
+}
+
+// ====== SEEDED RNG (deterministic shuffle) ======
+function xfnv1a(str) {
+  // 32-bit hash
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
   return function () {
-    let t = (a += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-function fisherYatesShuffle(arr, seedStr) {
-  const rnd = mulberry32(seedToUint32(seedStr));
-  for (let i = arr.length - 1; i > 0; i--) {
+function shuffleDeterministic(arr, seedStr) {
+  const a = arr.slice();
+  const seed = xfnv1a(seedStr);
+  const rnd = mulberry32(seed);
+  for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return arr;
+  return a;
 }
 
-// -------------------- Cards / Rules --------------------
-const SUITS = ["S", "H", "C", "D"]; // spades, hearts, clubs, diamonds
-const RANKS_ALL = ["A", "K", "Q", "J", "10", "9"];
-const RANKS_DIAMONDS_EXTRA = ["8", "7"];
+// ====== ROOMS ======
+/**
+ * rooms Map: roomId -> room
+ * room = {
+ *   roomId,
+ *   createdAt,
+ *   handNo,
+ *   dealerSeat,
+ *   phase, // LOBBY | SEED | BIDDING | SKAT | DISCARD | PLAY | SCORE
+ *   players: [ { seat, socketId, username, connected, ready, seed, bid } ],
+ *   fairness: { serverCommit, serverReveal, finalSeed },
+ *   deck: [],
+ *   hands: {0:[],1:[],2:[]},
+ *   skat: [],
+ *   soloistSeat,
+ *   discards: [], // 2 cards discarded by soloist
+ *   currentTurnSeat,
+ *   trickNo, // 0..7
+ *   trick: { leadSeat, cards:[{seat, cardId}] },
+ *   won: {0:[],1:[],2:[]}, // cards won
+ *   points: {0:0,1:0,2:0},
+ *   lastTrickWinnerSeat,
+ *   lastTrickCards,
+ *   log: []
+ * }
+ */
 
-function makeDeck() {
-  const deck = [];
-  for (const s of SUITS) {
-    for (const r of RANKS_ALL) deck.push(`${r}${s}`);
-  }
-  deck.push("8D");
-  deck.push("7D");
-  // total 26
-  return deck;
-}
-
-function parseCardId(cardId) {
-  const s = cardId.slice(-1);
-  const r = cardId.slice(0, -1);
-  return { r, s, id: cardId };
-}
-
-function isTrump(card) {
-  // all diamonds are trump; all queens/jacks (any suit) are trump
-  return card.s === "D" || card.r === "Q" || card.r === "J";
-}
-
-const TRUMP_ORDER = [
-  "QD",
-  "QC",
-  "QH",
-  "QS",
-  "JD",
-  "JC",
-  "JH",
-  "JS",
-  "AD",
-  "10D",
-  "KD",
-  "9D",
-  "8D",
-  "7D"
-];
-
-function trumpWeight(cardId) {
-  const idx = TRUMP_ORDER.indexOf(cardId);
-  // higher is better
-  return idx === -1 ? -1 : (TRUMP_ORDER.length - idx);
-}
-
-function nonTrumpWeight(card) {
-  // for suit tricks: A > 10 > K > 9
-  // Q/J should never be here because they are trump
-  const map = { A: 4, "10": 3, K: 2, "9": 1 };
-  return map[card.r] || 0;
-}
-
-function mustFollowSuit(handIds, leadCardId) {
-  const lead = parseCardId(leadCardId);
-  const leadIsTrump = isTrump(lead);
-
-  const hand = handIds.map(parseCardId);
-
-  if (leadIsTrump) {
-    const haveTrump = hand.some(isTrump);
-    return haveTrump ? { mode: "TRUMP" } : { mode: "ANY" };
-  }
-
-  // lead is non-trump suit
-  const suit = lead.s;
-  const haveSuit = hand.some((c) => !isTrump(c) && c.s === suit);
-  return haveSuit ? { mode: "SUIT", suit } : { mode: "ANY" };
-}
-
-function isLegalPlay(handIds, leadCardId, playCardId) {
-  if (!handIds.includes(playCardId)) return false;
-  if (!leadCardId) return true; // leading any card is fine
-
-  const rule = mustFollowSuit(handIds, leadCardId);
-  const p = parseCardId(playCardId);
-
-  if (rule.mode === "ANY") return true;
-  if (rule.mode === "TRUMP") return isTrump(p);
-  if (rule.mode === "SUIT") return !isTrump(p) && p.s === rule.suit;
-  return true;
-}
-
-function trickWinner(trick) {
-  // trick: [{seat, cardId}] length 3
-  const leadId = trick[0].cardId;
-  const lead = parseCardId(leadId);
-
-  const anyTrump = trick.some((t) => isTrump(parseCardId(t.cardId)));
-  if (anyTrump) {
-    let best = trick[0];
-    let bestW = trumpWeight(best.cardId);
-    for (const t of trick.slice(1)) {
-      const w = trumpWeight(t.cardId);
-      if (w > bestW) {
-        best = t;
-        bestW = w;
-      }
-    }
-    return best.seat;
-  }
-
-  // no trumps -> follow lead suit, best non-trump rank
-  const suit = lead.s;
-  let best = trick[0];
-  let bestW = nonTrumpWeight(parseCardId(best.cardId));
-  for (const t of trick.slice(1)) {
-    const c = parseCardId(t.cardId);
-    if (c.s !== suit) continue; // should not happen if legal, but safe
-    const w = nonTrumpWeight(c);
-    if (w > bestW) {
-      best = t;
-      bestW = w;
-    }
-  }
-  return best.seat;
-}
-
-function cardPoints(cardId) {
-  const c = parseCardId(cardId);
-  if (c.r === "A") return 11;
-  if (c.r === "10") return 10;
-  if (c.r === "K") return 4;
-  if (c.r === "Q") return 3;
-  if (c.r === "J") return 2;
-  return 0;
-}
-
-// -------------------- Rooms --------------------
 const rooms = new Map();
 
-function emptyRoom(roomId) {
-  return {
-    id: roomId,
-    phase: "LOBBY", // LOBBY | SEED | BIDDING | TAKE_SKAT | DISCARD | PLAY | RESULT
-    createdAt: Date.now(),
-    handNo: 0,
-
-    dealerSeat: 0,
-    players: [
-      { seat: 0, username: null, socketId: null, connected: false, ready: false, seed: null, hand: [], tricks: [] },
-      { seat: 1, username: null, socketId: null, connected: false, ready: false, seed: null, hand: [], tricks: [] },
-      { seat: 2, username: null, socketId: null, connected: false, ready: false, seed: null, hand: [], tricks: [] }
-    ],
-
-    // fairness
-    commit: null,
-    serverSeed: null, // revealed only after hand ends
-    shuffleSeedHash: null,
-    deckAtDeal: null, // revealed at end
-    seedsAtReveal: null,
-
-    // deal
-    skatHidden: [],     // the 2 cards (hidden until solo takes)
-    skatFinal: [],      // the 2 discarded cards (count for solo)
-    soloSeat: null,
-
-    // bidding
-    bidTurnSeat: null,
-    bids: { 0: null, 1: null, 2: null },
-
-    // play
-    leaderSeat: null,
-    turnSeat: null,
-    trickNo: 0,
-    trick: [], // [{seat, cardId}]
-    result: null,
-
-    log: []
-  };
+function makeEmptyPlayers() {
+  return [0, 1, 2].map((seat) => ({
+    seat,
+    socketId: null,
+    username: null,
+    connected: false,
+    ready: false,
+    seed: null,
+    bid: null
+  }));
 }
 
 function roomLog(room, msg) {
   const line = `[${new Date().toISOString().slice(11, 19)}] ${msg}`;
   room.log.push(line);
   if (room.log.length > 200) room.log.shift();
-  io.to(room.id).emit("zole:log", { line });
 }
 
-function publicRoomState(room) {
-  const fairness =
-    room.phase === "RESULT" && room.serverSeed
-      ? {
-          revealed: true,
-          commit: room.commit,
-          serverSeed: room.serverSeed,
-          clientSeeds: room.seedsAtReveal,
-          shuffleSeedHash: room.shuffleSeedHash,
-          deckAtDeal: room.deckAtDeal
-        }
-      : {
-          revealed: false,
-          commit: room.commit
-        };
-
+function getPublicState(room) {
   return {
-    roomId: room.id,
+    roomId: room.roomId,
     phase: room.phase,
     handNo: room.handNo,
     dealerSeat: room.dealerSeat,
     players: room.players.map((p) => ({
       seat: p.seat,
       username: p.username,
+      connected: p.connected,
       ready: p.ready,
-      connected: p.connected
+      bid: p.bid
     })),
-    soloSeat: room.soloSeat,
-    bids: room.bids,
-    bidTurnSeat: room.bidTurnSeat,
-    leaderSeat: room.leaderSeat,
-    turnSeat: room.turnSeat,
+    fairness: {
+      serverCommit: room.fairness?.serverCommit || null,
+      serverReveal: room.fairness?.serverReveal || null,
+      finalSeed: room.fairness?.finalSeed || null
+    },
+    soloistSeat: room.soloistSeat,
+    currentTurnSeat: room.currentTurnSeat,
     trickNo: room.trickNo,
-    trick: room.trick,
-    result: room.result,
-    fairness
+    trick: room.trick ? {
+      leadSeat: room.trick.leadSeat,
+      cards: room.trick.cards.map((c) => ({ seat: c.seat, cardId: c.cardId }))
+    } : null,
+    points: room.points,
+    lastTrickWinnerSeat: room.lastTrickWinnerSeat ?? null,
+    lastTrickCards: room.lastTrickCards ?? null
   };
 }
 
-function emitState(room) {
-  io.to(room.id).emit("room:state", publicRoomState(room));
-}
-
-function emitHands(room) {
+function emitRoom(room, io) {
+  io.to(room.roomId).emit("room:state", getPublicState(room));
+  io.to(room.roomId).emit("room:log", room.log.slice(-80));
+  // send private hands
   for (const p of room.players) {
-    if (!p.socketId) continue;
-    io.to(p.socketId).emit("zole:hand", {
-      handNo: room.handNo,
-      roomId: room.id,
-      commit: room.commit,
-      phase: room.phase,
-      hand: p.hand
-    });
+    if (p.socketId && p.connected) {
+      const hand = room.hands[p.seat] || [];
+      io.to(p.socketId).emit("your:hand", hand);
+    }
   }
 }
 
-// -------------------- Game Flow --------------------
-function allSeatedAndConnected(room) {
-  return room.players.every((p) => p.username && p.connected);
+function ensureRoom(roomId) {
+  if (!rooms.has(roomId)) {
+    const room = {
+      roomId,
+      createdAt: nowMs(),
+      handNo: 0,
+      dealerSeat: 0,
+      phase: "LOBBY",
+      players: makeEmptyPlayers(),
+      fairness: null,
+      deck: [],
+      hands: { 0: [], 1: [], 2: [] },
+      skat: [],
+      soloistSeat: null,
+      discards: [],
+      currentTurnSeat: null,
+      trickNo: 0,
+      trick: null,
+      won: { 0: [], 1: [], 2: [] },
+      points: { 0: 0, 1: 0, 2: 0 },
+      lastTrickWinnerSeat: null,
+      lastTrickCards: null,
+      log: []
+    };
+    rooms.set(roomId, room);
+  }
+  return rooms.get(roomId);
 }
-function allReady(room) {
-  return room.players.every((p) => p.username && p.connected && p.ready);
+
+function findEmptySeat(room) {
+  return room.players.find((p) => !p.username)?.seat ?? null;
 }
 
-function resetForNewHand(room, keepReady = true) {
-  room.phase = "LOBBY";
-  room.commit = null;
-  room.serverSeed = null;
-  room.shuffleSeedHash = null;
-  room.deckAtDeal = null;
-  room.seedsAtReveal = null;
+function seatOfSocket(room, socketId) {
+  const p = room.players.find((x) => x.socketId === socketId);
+  return p ? p.seat : null;
+}
 
-  room.skatHidden = [];
-  room.skatFinal = [];
-  room.soloSeat = null;
-
-  room.bidTurnSeat = null;
-  room.bids = { 0: null, 1: null, 2: null };
-
-  room.leaderSeat = null;
-  room.turnSeat = null;
-  room.trickNo = 0;
-  room.trick = [];
-  room.result = null;
-
-  for (const p of room.players) {
+function resetForNewHand(room) {
+  room.handNo += 1;
+  room.phase = "SEED";
+  room.players.forEach((p) => {
+    p.ready = false;      // pēc partijas atpakaļ lobby -> atkal ready
     p.seed = null;
-    p.hand = [];
-    p.tricks = [];
-    if (!keepReady) p.ready = false;
-  }
+    p.bid = null;
+  });
+  room.fairness = null;
+  room.deck = [];
+  room.hands = { 0: [], 1: [], 2: [] };
+  room.skat = [];
+  room.soloistSeat = null;
+  room.discards = [];
+  room.currentTurnSeat = null;
+  room.trickNo = 0;
+  room.trick = null;
+  room.won = { 0: [], 1: [], 2: [] };
+  room.points = { 0: 0, 1: 0, 2: 0 };
+  room.lastTrickWinnerSeat = null;
+  room.lastTrickCards = null;
 }
 
 function startSeedPhase(room) {
   room.phase = "SEED";
-  room.commit = null;
-  room.serverSeed = null;
-  room.shuffleSeedHash = null;
-  room.deckAtDeal = null;
-  room.seedsAtReveal = null;
 
-  for (const p of room.players) p.seed = null;
+  const serverSecret = crypto.randomBytes(32).toString("hex");
+  const serverCommit = sha256Hex(serverSecret);
 
-  const serverSeed = randHex(32);
-  const commit = sha256Hex(serverSeed);
+  room.fairness = {
+    serverCommit,
+    serverReveal: null,
+    finalSeed: null,
+    _serverSecret: serverSecret
+  };
 
-  // keep serverSeed hidden until end
-  room._serverSeedHidden = serverSeed;
-  room.commit = commit;
-
-  roomLog(room, `FAIRNESS commit: ${commit.slice(0, 16)}… (serverSeed atklāsies pēc partijas)`);
-  emitState(room);
-
-  // request seeds
-  for (const p of room.players) {
-    if (!p.socketId) continue;
-    io.to(p.socketId).emit("zole:seed_request", { roomId: room.id, handNo: room.handNo, commit });
-  }
+  roomLog(room, `Sākam partiju. Server commit: ${serverCommit.slice(0, 12)}…`);
 }
 
 function tryDealIfSeedsReady(room) {
-  if (room.phase !== "SEED") return;
-  if (!room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0)) return;
+  if (room.phase !== "SEED") return false;
+  if (room.players.some((p) => !p.username || !p.connected)) return false;
+  if (room.players.some((p) => !p.seed)) return false;
 
-  // build deterministic shuffle seed from hidden serverSeed + all player seeds
-  const serverSeed = room._serverSeedHidden;
-  const s0 = room.players[0].seed;
-  const s1 = room.players[1].seed;
-  const s2 = room.players[2].seed;
+  const serverSecret = room.fairness?._serverSecret;
+  const seeds = room.players.map((p) => p.seed);
+  const finalSeed = sha256Hex(`${serverSecret}|${seeds[0]}|${seeds[1]}|${seeds[2]}|${room.roomId}|${room.handNo}`);
 
-  const combo = `${serverSeed}|${s0}|${s1}|${s2}|${room.handNo}|${room.id}`;
-  const shuffleSeedHash = sha256Hex(combo);
-
-  room.shuffleSeedHash = shuffleSeedHash;
-
-  // shuffle
   const deck = makeDeck();
-  const shuffled = fisherYatesShuffle(deck.slice(), shuffleSeedHash);
+  const shuffled = shuffleDeterministic(deck, finalSeed);
 
-  // deal round-robin starting from forehand (left of dealer)
-  const forehand = (room.dealerSeat + 1) % 3;
+  // reveal now (so clients can verify after)
+  room.fairness.serverReveal = serverSecret;
+  room.fairness.finalSeed = finalSeed;
 
-  // first 24 cards distributed round-robin, last 2 are skatHidden
-  const hands = [[], [], []];
-  for (let i = 0; i < 24; i++) {
-    const seat = (forehand + (i % 3)) % 3;
-    hands[seat].push(shuffled[i]);
-  }
-  room.skatHidden = [shuffled[24], shuffled[25]];
-
-  for (const p of room.players) {
-    p.hand = hands[p.seat];
-    p.tricks = [];
+  room.deck = shuffled.slice();
+  room.skat = shuffled.slice(0, 2);
+  // 24 cards to players: 8 each
+  let idx = 2;
+  for (let seat = 0; seat < 3; seat++) {
+    room.hands[seat] = shuffled.slice(idx, idx + 8);
+    idx += 8;
   }
 
   room.phase = "BIDDING";
-  room.soloSeat = null;
-  room.bids = { 0: null, 1: null, 2: null };
-  room.bidTurnSeat = forehand;
+  room.soloistSeat = null;
+  room.currentTurnSeat = (room.dealerSeat + 1) % 3; // sāk solīt pa kreisi no dīlera
 
-  room.leaderSeat = forehand;
-  room.turnSeat = null;
-  room.trickNo = 0;
-  room.trick = [];
-  room.result = null;
-
-  roomLog(room, `Kārtis izdalītas. BIDDING sāk seat ${room.bidTurnSeat} (forehand).`);
-  emitState(room);
-  emitHands(room);
-  promptBidTurn(room);
+  roomLog(room, `Seed OK. Final seed: ${finalSeed.slice(0, 12)}… Deck dealt. Talons: 2 kārtis.`);
+  return true;
 }
 
-function promptBidTurn(room) {
-  if (room.phase !== "BIDDING") return;
-  const seat = room.bidTurnSeat;
-  const p = room.players[seat];
-  if (!p || !p.socketId) return;
-
-  io.to(p.socketId).emit("zole:your_turn", {
-    type: "BID",
-    seat,
-    canPass: true,
-    canTake: true
-  });
-
-  io.to(room.id).emit("zole:info", { msg: `BID: gaida seat ${seat} (${p.username})` });
+function allReady(room) {
+  return room.players.every((p) => p.username && p.connected && p.ready);
 }
 
-function advanceBidTurn(room) {
-  // find next seat with bid=null
-  for (let step = 1; step <= 3; step++) {
-    const s = (room.bidTurnSeat + step) % 3;
-    if (room.bids[s] === null) {
-      room.bidTurnSeat = s;
-      promptBidTurn(room);
-      emitState(room);
+function chooseNextBidTurn(room) {
+  // simplistic: rotate to next seat who hasn't bid
+  for (let i = 0; i < 3; i++) {
+    const s = (room.currentTurnSeat + i) % 3;
+    if (room.players[s].bid == null) {
+      room.currentTurnSeat = s;
       return;
     }
   }
+  room.currentTurnSeat = null;
 }
 
-function startTakeSkat(room, soloSeat) {
-  room.phase = "TAKE_SKAT";
-  room.soloSeat = soloSeat;
-  room.bidTurnSeat = null;
-
-  roomLog(room, `Soloists seat ${soloSeat} ŅEM. Talons nosūtīts soloistam.`);
-
-  const solo = room.players[soloSeat];
-  if (solo && solo.socketId) {
-    io.to(solo.socketId).emit("zole:skat", {
-      skat: room.skatHidden,
-      msg: "Tu ņēmi. Tev ir talons (2 kārtis). Spied “Paņemt talonu”."
-    });
-    io.to(solo.socketId).emit("zole:your_turn", { type: "TAKE_SKAT", seat: soloSeat });
-  }
-
-  emitState(room);
-}
-
-function startDiscard(room) {
-  room.phase = "DISCARD";
-  const soloSeat = room.soloSeat;
-  const solo = room.players[soloSeat];
-
-  if (solo && solo.socketId) {
-    io.to(solo.socketId).emit("zole:your_turn", { type: "DISCARD", seat: soloSeat });
-  }
-
-  roomLog(room, `Soloists izvēlas 2 kārtis atmešanai (skat).`);
-  emitState(room);
-  emitHands(room);
-}
-
-function startPlay(room) {
-  room.phase = "PLAY";
-  room.trickNo = 0;
-  room.trick = [];
-  room.turnSeat = room.leaderSeat;
-
-  roomLog(room, `PLAY sākas. 1. gājienu dara seat ${room.turnSeat}.`);
-  emitState(room);
-  promptPlayTurn(room);
-}
-
-function promptPlayTurn(room) {
-  if (room.phase !== "PLAY") return;
-  const seat = room.turnSeat;
-  const p = room.players[seat];
-  if (!p || !p.socketId) return;
-
-  // send lead card if exists
-  const leadCardId = room.trick.length > 0 ? room.trick[0].cardId : null;
-
-  io.to(p.socketId).emit("zole:your_turn", {
-    type: "PLAY",
-    seat,
-    leadCardId
-  });
-
-  io.to(room.id).emit("zole:info", { msg: `GAIDI gājienu: seat ${seat} (${p.username})` });
-}
-
-function nextTurnSeat(room) {
-  return (room.turnSeat + 1) % 3;
-}
-
-function finishTrick(room) {
-  const winSeat = trickWinner(room.trick);
-  const cards = room.trick.map((t) => t.cardId);
-
-  room.players[winSeat].tricks.push(...cards);
-  roomLog(room, `Stiķis #${room.trickNo + 1}: uzvar seat ${winSeat}.`);
-
-  room.trick = [];
-  room.trickNo += 1;
-
-  if (room.trickNo >= 8) {
-    finishHand(room);
+function finalizeBidding(room) {
+  // if someone TAKE -> soloist that seat
+  const taker = room.players.find((p) => p.bid === "TAKE");
+  if (taker) {
+    room.soloistSeat = taker.seat;
+    room.phase = "SKAT";
+    room.currentTurnSeat = taker.seat;
+    roomLog(room, `Soloists: ${taker.username} (seat ${taker.seat}). Paņem talonu.`);
     return;
   }
 
-  room.leaderSeat = winSeat;
-  room.turnSeat = winSeat;
-  emitState(room);
-  promptPlayTurn(room);
+  // all passed -> MVP fallback: dealer becomes soloist
+  room.soloistSeat = room.dealerSeat;
+  room.phase = "SKAT";
+  room.currentTurnSeat = room.dealerSeat;
+  roomLog(room, `Visi PASS. MVP režīms: soloists ir dīleris (seat ${room.dealerSeat}).`);
 }
 
-function finishHand(room) {
-  room.phase = "RESULT";
+function takeSkat(room) {
+  if (room.phase !== "SKAT") return { ok: false, error: "NAV_SKAT_FĀZES" };
+  const s = room.soloistSeat;
+  if (s == null) return { ok: false, error: "NAV_SOLOISTA" };
 
-  // Reveal fairness now (safe after hand ends)
-  room.serverSeed = room._serverSeedHidden;
-  room.seedsAtReveal = room.players.map((p) => p.seed);
-  room.deckAtDeal = (() => {
-    // allow public verification: show the exact shuffled deck order used at deal
-    const combo = `${room.serverSeed}|${room.seedsAtReveal[0]}|${room.seedsAtReveal[1]}|${room.seedsAtReveal[2]}|${room.handNo}|${room.id}`;
-    const hash = sha256Hex(combo);
-    const deck = makeDeck();
-    return fisherYatesShuffle(deck.slice(), hash);
-  })();
-
-  const solo = room.soloSeat;
-  const soloPointsTricks = room.players[solo].tricks.reduce((a, id) => a + cardPoints(id), 0);
-  const soloPointsSkat = room.skatFinal.reduce((a, id) => a + cardPoints(id), 0);
-  const soloPoints = soloPointsTricks + soloPointsSkat;
-
-  const total = 120; // fixed for this deck
-  const defPoints = total - soloPoints;
-
-  const soloWin = soloPoints >= 61;
-
-  room.result = {
-    soloSeat: solo,
-    soloPoints,
-    defPoints,
-    soloWin,
-    skat: room.skatFinal
-  };
-
-  roomLog(room, `REZULTĀTS: solo seat ${solo} punkti ${soloPoints} (skat ${soloPointsSkat}). ${soloWin ? "UZVAR" : "ZAUDĒ"}.`);
-  roomLog(room, `FAIRNESS reveal: serverSeed atklāts (verifikācijai).`);
-
-  emitState(room);
-
-  // prepare next hand after short delay
-  setTimeout(() => {
-    room.handNo += 1;
-    room.dealerSeat = (room.dealerSeat + 1) % 3;
-    resetForNewHand(room, false); // require READY again
-    roomLog(room, `Atpakaļ LOBBY. Nākamais dīleris: seat ${room.dealerSeat}.`);
-    emitState(room);
-    emitHands(room);
-  }, 4500);
+  room.hands[s] = room.hands[s].concat(room.skat);
+  room.skat = [];
+  room.phase = "DISCARD";
+  room.currentTurnSeat = s;
+  roomLog(room, `Soloists paņēma talonu un tagad atmet 2 kārtis.`);
+  return { ok: true };
 }
 
-// -------------------- Seat Management --------------------
-function findSeatByUsername(room, username) {
-  return room.players.find((p) => p.username === username) || null;
-}
+function discardTwo(room, cards) {
+  if (room.phase !== "DISCARD") return { ok: false, error: "NAV_DISCARD_FĀZES" };
+  const s = room.soloistSeat;
+  if (s == null) return { ok: false, error: "NAV_SOLOISTA" };
+  const hand = room.hands[s];
 
-function assignSeat(room, username, socketId) {
-  // reconnect to same username seat if disconnected
-  const existing = findSeatByUsername(room, username);
-  if (existing) {
-    if (existing.connected) return { ok: false, error: "Šis niks jau ir istabā. Izmanto citu niku." };
-    existing.socketId = socketId;
-    existing.connected = true;
-    existing.ready = false;
-    return { ok: true, seat: existing.seat, reconnected: true };
+  const unique = Array.from(new Set((cards || []).map((c) => String(c).toUpperCase())));
+  if (unique.length !== 2) return { ok: false, error: "JĀ_IZVĒLAS_2" };
+
+  for (const id of unique) {
+    if (!hand.includes(id)) return { ok: false, error: "KĀRTE_NAV_ROKĀ" };
   }
 
-  const free = room.players.find((p) => !p.username);
-  if (!free) return { ok: false, error: "Istaba ir pilna (3/3)." };
+  room.hands[s] = hand.filter((id) => !unique.includes(id));
+  room.discards = unique.slice();
 
-  free.username = username;
-  free.socketId = socketId;
-  free.connected = true;
-  free.ready = false;
-  free.seed = null;
-  free.hand = [];
-  free.tricks = [];
+  // start play
+  room.phase = "PLAY";
+  room.trickNo = 0;
+  room.trick = { leadSeat: (room.dealerSeat + 1) % 3, cards: [] };
+  room.currentTurnSeat = room.trick.leadSeat;
 
-  return { ok: true, seat: free.seat, reconnected: false };
+  roomLog(room, `Soloists atmeta 2 kārtis. Sākas izspēle (8 stiķi). Pirmais gājiens: seat ${room.currentTurnSeat}.`);
+  return { ok: true };
 }
 
-function removeSeat(room, socketId) {
-  const p = room.players.find((x) => x.socketId === socketId);
-  if (!p) return null;
+function playCard(room, seat, cardIdStr) {
+  if (room.phase !== "PLAY") return { ok: false, error: "NAV_PLAY_FĀZES" };
+  if (room.currentTurnSeat !== seat) return { ok: false, error: "NAV_TAVS_GĀJIENS" };
 
-  // keep seat reserved but mark disconnected
-  p.connected = false;
-  p.socketId = null;
-  p.ready = false;
-  return p.seat;
+  const cardIdU = String(cardIdStr || "").trim().toUpperCase();
+  const card = parseCardId(cardIdU);
+  if (!card) return { ok: false, error: "SLIKTA_KĀRTE" };
+
+  const hand = room.hands[seat] || [];
+  if (!hand.includes(card.id)) return { ok: false, error: "KĀRTE_NAV_ROKĀ" };
+
+  // legal check
+  const legal = getLegalCards(hand, room.trick);
+  if (!legal.has(card.id)) return { ok: false, error: "NELEGĀLS_GĀJIENS" };
+
+  // remove from hand
+  room.hands[seat] = hand.filter((x) => x !== card.id);
+
+  // add to trick
+  room.trick.cards.push({ seat, cardId: card.id });
+
+  // advance or resolve trick
+  if (room.trick.cards.length < 3) {
+    room.currentTurnSeat = (seat + 1) % 3;
+    return { ok: true };
+  }
+
+  // resolve trick winner
+  const leadCardId = room.trick.cards[0].cardId;
+  let winnerSeat = room.trick.cards[0].seat;
+  let winnerCard = room.trick.cards[0].cardId;
+
+  for (let i = 1; i < 3; i++) {
+    const c = room.trick.cards[i];
+    const cmp = compareCardsForTrick(c.cardId, winnerCard, leadCardId);
+    if (cmp > 0) {
+      winnerSeat = c.seat;
+      winnerCard = c.cardId;
+    }
+  }
+
+  // collect cards and points
+  const trickCards = room.trick.cards.map((x) => x.cardId);
+  const trickPts = trickCards.reduce((sum, id) => sum + cardPoints(id), 0);
+
+  room.won[winnerSeat] = room.won[winnerSeat].concat(trickCards);
+  room.points[winnerSeat] += trickPts;
+
+  room.lastTrickWinnerSeat = winnerSeat;
+  room.lastTrickCards = room.trick.cards.map((x) => ({ seat: x.seat, cardId: x.cardId }));
+  roomLog(room, `Stiķis #${room.trickNo + 1}: uzvar seat ${winnerSeat} (+${trickPts} punkti).`);
+
+  // next trick or scoring
+  room.trickNo += 1;
+
+  if (room.trickNo >= 8) {
+    // end game scoring
+    const solo = room.soloistSeat;
+    const soloName = room.players[solo]?.username || `seat ${solo}`;
+
+    // discards count for soloist
+    const discardPts = (room.discards || []).reduce((sum, id) => sum + cardPoints(id), 0);
+    room.points[solo] += discardPts;
+
+    const soloPts = room.points[solo];
+    const result = soloPts >= 61 ? "UZVAR" : "ZAUDĒ";
+
+    room.phase = "SCORE";
+    room.currentTurnSeat = null;
+
+    roomLog(room, `Partija beigusies. Soloists ${soloName}: ${soloPts} punkti (talons: +${discardPts}). Rezultāts: ${result}.`);
+    return { ok: true, ended: true };
+  }
+
+  // start next trick with winner leading
+  room.trick = { leadSeat: winnerSeat, cards: [] };
+  room.currentTurnSeat = winnerSeat;
+  return { ok: true, trickWinnerSeat: winnerSeat };
 }
 
-// -------------------- Socket Handlers --------------------
+// ====== SERVER / SOCKET ======
+const app = express();
+app.use(express.json());
+
+app.use(cors({
+  origin: CORS_ORIGINS,
+  methods: ["GET", "POST"],
+  credentials: false
+}));
+
+app.get("/", (req, res) => {
+  res.type("text/plain").send("THEZONE ZOLE SERVER OK");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true, service: "thezone-zole-server", uptimeSec: Math.floor(process.uptime()) });
+});
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: CORS_ORIGINS, methods: ["GET", "POST"] }
+});
+
 io.on("connection", (socket) => {
-  socket.data.username = null;
-  socket.data.roomId = null;
-  socket.data.seat = null;
-
   socket.emit("server:hello", { ok: true });
 
-  socket.on("hello", (payload, ack) => {
-    const username = sanitizeUsername(payload && payload.username);
-    socket.data.username = username;
-    if (ack) ack({ ok: true, username });
-  });
+  function joinRoom(roomId, username) {
+    const rid = safeRoomId(roomId);
+    if (!rid) return { ok: false, error: "SLIKTS_ROOM" };
+    const name = safeStr(username, 20);
+    if (!name) return { ok: false, error: "SLIKTS_NIKS" };
 
-  socket.on("room:create", (payload, ack) => {
-    const username = sanitizeUsername(payload && payload.username) || socket.data.username;
-    const roomId = normalizeRoomId(payload && payload.roomId);
+    const room = ensureRoom(rid);
 
-    if (!roomId) return ack && ack({ ok: false, error: "Ievadi ROOM (piem., A1B2)." });
-
-    if (!rooms.has(roomId)) {
-      rooms.set(roomId, emptyRoom(roomId));
+    // prevent same socket in multiple seats
+    const existingSeat = seatOfSocket(room, socket.id);
+    if (existingSeat != null) {
+      return { ok: true, roomId: rid, seat: existingSeat };
     }
-    const room = rooms.get(roomId);
 
-    const asn = assignSeat(room, username, socket.id);
-    if (!asn.ok) return ack && ack(asn);
+    const seat = findEmptySeat(room);
+    if (seat == null) return { ok: false, error: "ISTABA_PILNA" };
 
-    socket.join(roomId);
-    socket.data.roomId = roomId;
-    socket.data.seat = asn.seat;
-    socket.data.username = username;
-
-    roomLog(room, `${username} ienāca istabā (seat ${asn.seat})${asn.reconnected ? " (reconnect)" : ""}.`);
-    emitState(room);
-    emitHands(room);
-
-    return ack && ack({ ok: true, roomId, seat: asn.seat });
-  });
-
-  socket.on("room:join", (payload, ack) => {
-    const username = sanitizeUsername(payload && payload.username) || socket.data.username;
-    const roomId = normalizeRoomId(payload && payload.roomId);
-
-    if (!roomId) return ack && ack({ ok: false, error: "Ievadi ROOM (piem., A1B2)." });
-
-    if (!rooms.has(roomId)) {
-      // MVP: auto-create if missing
-      rooms.set(roomId, emptyRoom(roomId));
-    }
-    const room = rooms.get(roomId);
-
-    const asn = assignSeat(room, username, socket.id);
-    if (!asn.ok) return ack && ack(asn);
-
-    socket.join(roomId);
-    socket.data.roomId = roomId;
-    socket.data.seat = asn.seat;
-    socket.data.username = username;
-
-    roomLog(room, `${username} pievienojās istabai (seat ${asn.seat})${asn.reconnected ? " (reconnect)" : ""}.`);
-    emitState(room);
-    emitHands(room);
-
-    return ack && ack({ ok: true, roomId, seat: asn.seat });
-  });
-
-  socket.on("room:leave", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    if (!roomId || !rooms.has(roomId)) return ack && ack({ ok: true });
-
-    const room = rooms.get(roomId);
-    const seat = removeSeat(room, socket.id);
-    socket.leave(roomId);
-
-    if (seat !== null) roomLog(room, `${socket.data.username} aizgāja (seat ${seat}).`);
-
-    socket.data.roomId = null;
-    socket.data.seat = null;
-
-    emitState(room);
-    emitHands(room);
-
-    return ack && ack({ ok: true });
-  });
-
-  socket.on("zole:ready", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    const seat = socket.data.seat;
-    if (!roomId || seat === null) return ack && ack({ ok: false, error: "Nav istabas." });
-
-    const room = rooms.get(roomId);
     const p = room.players[seat];
-    if (!p) return ack && ack({ ok: false, error: "Seat error." });
+    p.socketId = socket.id;
+    p.username = name;
+    p.connected = true;
+    p.ready = false;
+    p.seed = null;
+    p.bid = null;
 
-    const ready = !!(payload && payload.ready);
-    p.ready = ready;
+    socket.join(rid);
+    roomLog(room, `Pievienojās: ${name} (seat ${seat}).`);
+    emitRoom(room, io);
 
-    roomLog(room, `${p.username} READY=${ready}.`);
-    emitState(room);
+    return { ok: true, roomId: rid, seat };
+  }
 
-    // If all ready -> start seed phase (new hand)
-    if (room.phase === "LOBBY" && allSeatedAndConnected(room) && allReady(room)) {
+  socket.on("room:create", (payload, cb) => {
+    const username = payload?.username;
+    let rid = safeRoomId(payload?.roomId);
+
+    if (!rid) {
+      rid = crypto.randomBytes(2).toString("hex").toUpperCase(); // 4 chars
+    }
+
+    const room = ensureRoom(rid);
+    const seat = findEmptySeat(room);
+    if (seat == null) {
+      if (typeof cb === "function") cb({ ok: false, error: "ISTABA_PILNA" });
+      return;
+    }
+
+    const res = joinRoom(rid, username);
+    if (typeof cb === "function") cb(res);
+  });
+
+  socket.on("room:join", (payload, cb) => {
+    const roomId = payload?.roomId;
+    const username = payload?.username;
+
+    const res = joinRoom(roomId, username);
+    if (typeof cb === "function") cb(res);
+  });
+
+  socket.on("zole:ready", (payload, cb) => {
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
+
+    const seat = seatOfSocket(room, socket.id);
+    if (seat == null) return cb?.({ ok: false, error: "NAV_SEAT" });
+
+    const val = !!payload?.ready;
+    room.players[seat].ready = val;
+
+    roomLog(room, `${room.players[seat].username} READY = ${val ? "JĀ" : "NĒ"}.`);
+
+    // start game if all ready
+    if (room.phase === "LOBBY" && allReady(room)) {
       startSeedPhase(room);
     }
 
-    return ack && ack({ ok: true, ready });
+    emitRoom(room, io);
+    cb?.({ ok: true });
   });
 
-  socket.on("zole:seed", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    const seat = socket.data.seat;
-    if (!roomId || seat === null) return ack && ack({ ok: false, error: "Nav istabas." });
+  socket.on("zole:seed", (payload, cb) => {
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
 
-    const room = rooms.get(roomId);
-    if (room.phase !== "SEED") return ack && ack({ ok: false, error: "Šobrīd seed netiek prasīts." });
+    const seat = seatOfSocket(room, socket.id);
+    if (seat == null) return cb?.({ ok: false, error: "NAV_SEAT" });
 
-    const p = room.players[seat];
-    if (!p) return ack && ack({ ok: false, error: "Seat error." });
+    if (room.phase !== "SEED") return cb?.({ ok: false, error: "NAV_SEED_FĀZES" });
 
-    const seed = String(payload && payload.seed || "").trim().slice(0, 64);
-    if (!seed) return ack && ack({ ok: false, error: "Seed tukšs." });
+    const seed = safeStr(payload?.seed, 64);
+    if (!seed) return cb?.({ ok: false, error: "SLIKTS_SEED" });
 
-    p.seed = seed;
-    roomLog(room, `${p.username} iedeva seed.`);
-    emitState(room);
+    room.players[seat].seed = seed;
+    roomLog(room, `Seed saņemts no seat ${seat}.`);
 
     tryDealIfSeedsReady(room);
-    return ack && ack({ ok: true });
+    emitRoom(room, io);
+    cb?.({ ok: true });
   });
 
-  socket.on("zole:bid", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    const seat = socket.data.seat;
-    if (!roomId || seat === null) return ack && ack({ ok: false, error: "Nav istabas." });
+  socket.on("zole:bid", (payload, cb) => {
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
 
-    const room = rooms.get(roomId);
-    if (room.phase !== "BIDDING") return ack && ack({ ok: false, error: "Tagad nav BIDDING." });
-    if (room.bidTurnSeat !== seat) return ack && ack({ ok: false, error: "Nav tavs gājiens (BID)." });
+    const seat = seatOfSocket(room, socket.id);
+    if (seat == null) return cb?.({ ok: false, error: "NAV_SEAT" });
 
-    const action = String(payload && payload.action || "").toUpperCase();
-    if (!["PASS", "TAKE"].includes(action)) return ack && ack({ ok: false, error: "Bid action invalid." });
+    if (room.phase !== "BIDDING") return cb?.({ ok: false, error: "NAV_BIDDING" });
+    if (room.players[seat].bid != null) return cb?.({ ok: false, error: "JAU_SOLĪTS" });
 
-    room.bids[seat] = action;
-    roomLog(room, `BID seat ${seat} (${room.players[seat].username}): ${action}`);
+    const action = String(payload?.action || "").toUpperCase();
+    if (action !== "PASS" && action !== "TAKE") return cb?.({ ok: false, error: "SLIKTA_DARBĪBA" });
+
+    room.players[seat].bid = action;
+    roomLog(room, `BID: seat ${seat} -> ${action}`);
 
     if (action === "TAKE") {
-      emitState(room);
-      startTakeSkat(room, seat);
-      return ack && ack({ ok: true });
+      finalizeBidding(room);
+    } else {
+      // if all have bid now, finalize
+      if (room.players.every((p) => p.bid != null)) {
+        finalizeBidding(room);
+      } else {
+        room.currentTurnSeat = (seat + 1) % 3;
+        chooseNextBidTurn(room);
+      }
     }
 
-    // PASS
-    const allDone = Object.values(room.bids).every((v) => v !== null);
-    if (allDone) {
-      roomLog(room, "Visi PASS. Pārizdale (next dealer).");
-      room.handNo += 1;
-      room.dealerSeat = (room.dealerSeat + 1) % 3;
-      // keep ready true: but require new seeds
-      resetForNewHand(room, true);
-      emitState(room);
-      startSeedPhase(room);
-      return ack && ack({ ok: true });
-    }
-
-    advanceBidTurn(room);
-    emitState(room);
-    return ack && ack({ ok: true });
+    emitRoom(room, io);
+    cb?.({ ok: true });
   });
 
-  socket.on("zole:takeSkat", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    const seat = socket.data.seat;
-    if (!roomId || seat === null) return ack && ack({ ok: false, error: "Nav istabas." });
+  socket.on("zole:takeSkat", (payload, cb) => {
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
 
-    const room = rooms.get(roomId);
-    if (room.phase !== "TAKE_SKAT") return ack && ack({ ok: false, error: "Tagad nav TAKE_SKAT." });
-    if (room.soloSeat !== seat) return ack && ack({ ok: false, error: "Tikai soloists var ņemt talonu." });
+    const seat = seatOfSocket(room, socket.id);
+    if (seat == null) return cb?.({ ok: false, error: "NAV_SEAT" });
 
-    const solo = room.players[seat];
-    solo.hand = solo.hand.concat(room.skatHidden);
-    room.skatHidden = [];
+    if (room.soloistSeat !== seat) return cb?.({ ok: false, error: "NAV_SOLOISTS" });
 
-    roomLog(room, `Soloists paņēma talonu. Rokā tagad ${solo.hand.length} kārtis.`);
-    emitHands(room);
-    emitState(room);
-    startDiscard(room);
-
-    return ack && ack({ ok: true });
+    const res = takeSkat(room);
+    emitRoom(room, io);
+    cb?.(res);
   });
 
-  socket.on("zole:discard", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    const seat = socket.data.seat;
-    if (!roomId || seat === null) return ack && ack({ ok: false, error: "Nav istabas." });
+  socket.on("zole:discard", (payload, cb) => {
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
 
-    const room = rooms.get(roomId);
-    if (room.phase !== "DISCARD") return ack && ack({ ok: false, error: "Tagad nav DISCARD." });
-    if (room.soloSeat !== seat) return ack && ack({ ok: false, error: "Tikai soloists atmet." });
+    const seat = seatOfSocket(room, socket.id);
+    if (seat == null) return cb?.({ ok: false, error: "NAV_SEAT" });
 
-    const ids = (payload && payload.cardIds) || [];
-    if (!Array.isArray(ids) || ids.length !== 2) return ack && ack({ ok: false, error: "Jāatmet tieši 2 kārtis." });
+    if (room.soloistSeat !== seat) return cb?.({ ok: false, error: "NAV_SOLOISTS" });
 
-    const solo = room.players[seat];
-    const unique = Array.from(new Set(ids.map(String)));
-    if (unique.length !== 2) return ack && ack({ ok: false, error: "Kārtīm jābūt 2 dažādām." });
-
-    if (!unique.every((id) => solo.hand.includes(id))) return ack && ack({ ok: false, error: "Atmest var tikai no savas rokas." });
-
-    // remove from hand
-    solo.hand = solo.hand.filter((x) => !unique.includes(x));
-    room.skatFinal = unique.slice();
-
-    roomLog(room, `Soloists atmeta 2 kārtis skat. Rokā palika ${solo.hand.length}.`);
-    emitHands(room);
-    emitState(room);
-
-    startPlay(room);
-    return ack && ack({ ok: true });
+    const res = discardTwo(room, payload?.cards);
+    emitRoom(room, io);
+    cb?.(res);
   });
 
-  socket.on("zole:play", (payload, ack) => {
-    const roomId = socket.data.roomId;
-    const seat = socket.data.seat;
-    if (!roomId || seat === null) return ack && ack({ ok: false, error: "Nav istabas." });
+  socket.on("zole:play", (payload, cb) => {
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
 
-    const room = rooms.get(roomId);
-    if (room.phase !== "PLAY") return ack && ack({ ok: false, error: "Tagad nav PLAY." });
-    if (room.turnSeat !== seat) return ack && ack({ ok: false, error: "Nav tavs gājiens." });
+    const seat = seatOfSocket(room, socket.id);
+    if (seat == null) return cb?.({ ok: false, error: "NAV_SEAT" });
 
-    const p = room.players[seat];
-    const cardId = String(payload && payload.cardId || "");
+    const res = playCard(room, seat, payload?.cardId);
+    emitRoom(room, io);
+    cb?.(res);
+  });
 
-    const leadCardId = room.trick.length > 0 ? room.trick[0].cardId : null;
-    if (!isLegalPlay(p.hand, leadCardId, cardId)) return ack && ack({ ok: false, error: "Neleģāls gājiens (jāseko mastam / trumpim)." });
+  socket.on("zole:next", (payload, cb) => {
+    // pēc SCORE: atpakaļ uz LOBBY un nākamais dīleris
+    const rid = safeRoomId(payload?.roomId);
+    const room = rooms.get(rid);
+    if (!room) return cb?.({ ok: false, error: "NAV_ROOM" });
 
-    // remove from hand, add to trick
-    p.hand = p.hand.filter((x) => x !== cardId);
-    room.trick.push({ seat, cardId });
+    if (room.phase !== "SCORE") return cb?.({ ok: false, error: "NAV_SCORE" });
 
-    roomLog(room, `PLAY seat ${seat} (${p.username}) uzlika ${cardId}.`);
-    emitHands(room);
-    emitState(room);
-
-    if (room.trick.length >= 3) {
-      finishTrick(room);
-      return ack && ack({ ok: true });
-    }
-
-    room.turnSeat = nextTurnSeat(room);
-    emitState(room);
-    promptPlayTurn(room);
-    return ack && ack({ ok: true });
+    room.dealerSeat = (room.dealerSeat + 1) % 3;
+    resetForNewHand(room);
+    room.phase = "LOBBY";
+    roomLog(room, `Atpakaļ lobby. Nākamais dīleris: seat ${room.dealerSeat}.`);
+    emitRoom(room, io);
+    cb?.({ ok: true });
   });
 
   socket.on("disconnect", () => {
-    const roomId = socket.data.roomId;
-    if (!roomId || !rooms.has(roomId)) return;
-
-    const room = rooms.get(roomId);
-    const seat = removeSeat(room, socket.id);
-    if (seat !== null) roomLog(room, `${socket.data.username} atvienojās (seat ${seat}).`);
-
-    emitState(room);
-    emitHands(room);
+    // mark disconnected in any room
+    for (const room of rooms.values()) {
+      const p = room.players.find((x) => x.socketId === socket.id);
+      if (p) {
+        p.connected = false;
+        roomLog(room, `Atvienojās: ${p.username} (seat ${p.seat}).`);
+        emitRoom(room, io);
+      }
+    }
   });
 });
 
 server.listen(PORT, () => {
-  console.log("thezone-zole-server listening on", PORT);
+  console.log(`thezone-zole-server listening on :${PORT}`);
+  console.log(`CORS_ORIGINS: ${CORS_ORIGINS.join(", ")}`);
 });
