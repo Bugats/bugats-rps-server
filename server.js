@@ -9,6 +9,7 @@
    - Visi PASS: GALDIŅŠ (talons 1./2. stiķim, sods ar GALDINS_PAY)
    - Commit–reveal fairness (serverCommit + 3 client seed → deterministisks shuffle)
    - Seat "spoku" FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
+   - FIX: KĀRTIS IZDALĀS UZREIZ PIE NEW_HAND (pēc READY), nevis tikai pēc pirmā bid
    ============================ */
 
 const express = require("express");
@@ -181,7 +182,7 @@ function pickTrickWinner(room, plays) {
       else {
         const a = trumpStrengthStd(p.card);
         const b = trumpStrengthStd(best.card);
-        if ((a ?? 999) < (b ?? 999)) best = p;
+        if ((a ?? 999) < (b ?? 999)) best = p; // mazāks indekss = stiprāks
       }
     }
     return best ? best.seat : plays[0].seat;
@@ -343,19 +344,6 @@ function resetHandState(room) {
   room.galdinsTalonIndex = 0;
 }
 
-function startNewHand(room) {
-  room.handNo += 1;
-  room.phase = "BIDDING";
-  resetHandState(room);
-
-  const serverSecret = crypto.randomBytes(16).toString("hex");
-  const serverCommit = sha256hex(serverSecret);
-  room.fairness = { serverCommit, serverSecret, serverReveal: null, combinedHash: null };
-
-  room.turnSeat = room.bidTurnSeat;
-  emitRoom(room, { note: "NEW_HAND" });
-}
-
 function dealIfReady(room) {
   if (!roomHasAllPlayers(room)) return false;
   if (!room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0)) return false;
@@ -379,6 +367,24 @@ function dealIfReady(room) {
 
   room.leaderSeat = (room.dealerSeat + 1) % 3;
   return true;
+}
+
+function startNewHand(room) {
+  room.handNo += 1;
+  room.phase = "BIDDING";
+  resetHandState(room);
+
+  const serverSecret = crypto.randomBytes(16).toString("hex");
+  const serverCommit = sha256hex(serverSecret);
+  room.fairness = { serverCommit, serverSecret, serverReveal: null, combinedHash: null };
+
+  // BIDDING sākas no (dealer+1)
+  room.turnSeat = room.bidTurnSeat;
+
+  // ✅ FIX: izdalām uzreiz pie NEW_HAND, lai UI uzreiz rāda kārtis
+  const didDeal = dealIfReady(room);
+
+  emitRoom(room, { note: didDeal ? "NEW_HAND_DEALT" : "NEW_HAND_WAIT_SEEDS" });
 }
 
 function preparePlayPhase(room) {
@@ -748,6 +754,9 @@ io.on("connection", (socket) => {
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return;
 
+    // ✅ lock seed pēc izdalīšanas (fairness)
+    if (room.deck && room.deck.length) return;
+
     const seed = String(seedRaw || "").trim().slice(0, 64);
     if (!seed) return;
 
@@ -784,6 +793,7 @@ io.on("connection", (socket) => {
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
 
+    // fallback (drošībai), ja kaut kā nav izdalīts
     if (!room.deck) {
       const did = dealIfReady(room);
       if (!did) return ack?.({ ok: false, error: "WAIT_SEEDS" });
