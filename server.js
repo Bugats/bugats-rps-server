@@ -10,6 +10,7 @@
    - Commit–reveal fairness (serverCommit + 3 client seed → deterministisks shuffle)
    - Seat "spoku" FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
    - FIX: KĀRTIS IZDALĀS UZREIZ PIE NEW_HAND (pēc READY), nevis tikai pēc pirmā bid
+   - FIX: GĀJIENI/ROTĀCIJA iet PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW) (seat → (seat+2)%3)
    ============================ */
 
 const express = require("express");
@@ -21,7 +22,10 @@ const crypto = require("crypto");
 const PORT = process.env.PORT || 10080;
 
 // Galdiņa sods “uz vieninieku”
-const GALDINS_PAY = Math.max(1, Math.min(5, parseInt(process.env.GALDINS_PAY || "1", 10) || 1));
+const GALDINS_PAY = Math.max(
+  1,
+  Math.min(5, parseInt(process.env.GALDINS_PAY || "1", 10) || 1)
+);
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
   .split(",")
@@ -40,7 +44,18 @@ app.get("/", (req, res) => res.send("OK"));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: corsOptions.origin, credentials: true } });
+const io = new Server(server, {
+  cors: { origin: corsOptions.origin, credentials: true }
+});
+
+/* ============================
+   PALĪGHELPERI — SEAT ROTĀCIJA (CW)
+   UI mapping tev: left=(mySeat+2)%3, right=(mySeat+1)%3
+   Lai gājiens vizuāli ietu pulksteņrādītāja virzienā: next = (seat+2)%3
+   ============================ */
+function nextSeatCW(seat) {
+  return (seat + 2) % 3;
+}
 
 /* ============================
    KĀRTIS + NOTEIKUMI
@@ -325,7 +340,8 @@ function resetHandState(room) {
   room.fairness = null;
 
   room.bids = [];
-  room.bidTurnSeat = (room.dealerSeat + 1) % 3;
+  // ✅ CW: nākamais pēc dīlera ir (dealer+2)%3
+  room.bidTurnSeat = nextSeatCW(room.dealerSeat);
 
   room.contract = null;
   room.bigSeat = null;
@@ -352,7 +368,9 @@ function dealIfReady(room) {
   const serverCommit = room.fairness?.serverCommit;
   if (!serverSecret || !serverCommit) return false;
 
-  const combined = sha256hex(`${serverSecret}:${room.players[0].seed}:${room.players[1].seed}:${room.players[2].seed}`);
+  const combined = sha256hex(
+    `${serverSecret}:${room.players[0].seed}:${room.players[1].seed}:${room.players[2].seed}`
+  );
 
   room.fairness.serverReveal = serverSecret;
   room.fairness.combinedHash = combined;
@@ -365,7 +383,8 @@ function dealIfReady(room) {
   room.hands[2] = deck.slice(16, 24);
   room.talon = deck.slice(24, 26);
 
-  room.leaderSeat = (room.dealerSeat + 1) % 3;
+  // ✅ CW: pirmais gājiens (leader) = nākamais pēc dīlera
+  room.leaderSeat = nextSeatCW(room.dealerSeat);
   return true;
 }
 
@@ -378,7 +397,7 @@ function startNewHand(room) {
   const serverCommit = sha256hex(serverSecret);
   room.fairness = { serverCommit, serverSecret, serverReveal: null, combinedHash: null };
 
-  // BIDDING sākas no (dealer+1)
+  // ✅ BIDDING sākas no nākamā pēc dīlera (CW)
   room.turnSeat = room.bidTurnSeat;
 
   // ✅ FIX: izdalām uzreiz pie NEW_HAND, lai UI uzreiz rāda kārtis
@@ -407,7 +426,8 @@ function endToLobby(room, extraNote) {
   room.phase = "LOBBY";
   for (const p of room.players) p.ready = false;
 
-  room.dealerSeat = (room.dealerSeat + 1) % 3;
+  // ✅ CW dīlera rotācija
+  room.dealerSeat = nextSeatCW(room.dealerSeat);
   resetHandState(room);
 
   emitRoom(room, { note: extraNote || "BACK_TO_LOBBY" });
@@ -673,7 +693,8 @@ io.on("connection", (socket) => {
       room.players[seat].connected = true;
       room.players[seat].socketId = socket.id;
 
-      room.players[seat].seed = clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+      room.players[seat].seed =
+        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
 
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
@@ -709,7 +730,8 @@ io.on("connection", (socket) => {
       room.players[seat].connected = true;
       room.players[seat].socketId = socket.id;
 
-      room.players[seat].seed = clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+      room.players[seat].seed =
+        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
 
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
@@ -761,6 +783,14 @@ io.on("connection", (socket) => {
     if (!seed) return;
 
     room.players[seat].seed = seed;
+
+    // ✅ ja hand jau ir sācies un vēl nav izdalīts, izdalām tiklīdz pēdējais seed atnāk
+    if (room.phase === "BIDDING" && room.fairness && !room.deck) {
+      const did = dealIfReady(room);
+      emitRoom(room, { note: did ? "AUTO_DEAL_OK" : "SEED" });
+      return;
+    }
+
     emitRoom(room, { note: "SEED" });
   }
   socket.on("fair:seed", setSeed);
@@ -801,7 +831,13 @@ io.on("connection", (socket) => {
     }
 
     let bidRaw = String(payload?.bid || "").toUpperCase().trim();
-    if (bidRaw === "MAZA_ZOLE" || bidRaw === "MAZA ZOLE" || bidRaw === "MAZĀ" || bidRaw === "MAZĀ ZOLE") bidRaw = "MAZA";
+    if (
+      bidRaw === "MAZA_ZOLE" ||
+      bidRaw === "MAZA ZOLE" ||
+      bidRaw === "MAZĀ" ||
+      bidRaw === "MAZĀ ZOLE"
+    )
+      bidRaw = "MAZA";
 
     const allowed = new Set(["PASS", "TAKE", "ZOLE", "MAZA"]);
     if (!allowed.has(bidRaw)) return ack?.({ ok: false, error: "BAD_BID" });
@@ -809,7 +845,8 @@ io.on("connection", (socket) => {
     room.bids.push({ seat, bid: bidRaw });
 
     if (bidRaw === "PASS") {
-      room.turnSeat = (room.turnSeat + 1) % 3;
+      // ✅ CW nākamais solītājs
+      room.turnSeat = nextSeatCW(room.turnSeat);
 
       const passCount = room.bids.filter((b) => b.bid === "PASS").length;
       if (passCount >= 3) {
@@ -919,7 +956,8 @@ io.on("connection", (socket) => {
     ack?.({ ok: true });
 
     if (room.trickPlays.length < 3) {
-      room.turnSeat = (room.turnSeat + 1) % 3;
+      // ✅ CW nākamais spēlētājs stiķī
+      room.turnSeat = nextSeatCW(room.turnSeat);
       emitRoom(room, { note: "PLAY" });
       return;
     }
