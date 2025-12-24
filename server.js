@@ -11,6 +11,11 @@
    - Seat "spoku" FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
    - FIX: KĀRTIS IZDALĀS UZREIZ PIE NEW_HAND (pēc READY), nevis tikai pēc pirmā bid
    - FIX: GĀJIENI/ROTĀCIJA iet PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW) (seat → (seat+2)%3)
+   - UPDATE: Punktu skaitīšana pēc lietotāja tabulas:
+     TAKE: 61–90 +2; 91+ +4; Sausā +6; 31–60 -2; 0–30 -4
+     ZOLE: +10 / -12
+     MAZĀ: +12 / -14
+   - UPDATE: room.lastResult (UI var parādīt “kas uzvar/zaudē un ar ko”)
    ============================ */
 
 const express = require("express");
@@ -318,7 +323,10 @@ function newRoom(roomId) {
 
     // galdiņš
     galdinsTrickNo: 0,
-    galdinsTalonIndex: 0
+    galdinsTalonIndex: 0,
+
+    // NEW: pēdējais rezultāts (UI)
+    lastResult: null
   };
 }
 
@@ -412,14 +420,22 @@ function preparePlayPhase(room) {
   room.turnSeat = room.leaderSeat;
 }
 
-function applyPayout(room, bigSeat, pay, bigWins) {
+// NEW: pielieto payout + atgriež deltas [d0,d1,d2]
+function applyPayout(room, bigSeat, payEach, bigWins) {
+  const delta = [0, 0, 0];
+
   if (bigWins) {
-    room.players[bigSeat].matchPts += pay * 2;
-    for (const p of room.players) if (p.seat !== bigSeat) p.matchPts -= pay;
+    delta[bigSeat] += payEach * 2;
+    for (const p of room.players) if (p.seat !== bigSeat) delta[p.seat] -= payEach;
   } else {
-    room.players[bigSeat].matchPts -= pay * 2;
-    for (const p of room.players) if (p.seat !== bigSeat) p.matchPts += pay;
+    delta[bigSeat] -= payEach * 2;
+    for (const p of room.players) if (p.seat !== bigSeat) delta[p.seat] += payEach;
   }
+
+  for (const p of room.players) {
+    p.matchPts += delta[p.seat] || 0;
+  }
+  return delta;
 }
 
 function endToLobby(room, extraNote) {
@@ -433,18 +449,7 @@ function endToLobby(room, extraNote) {
   emitRoom(room, { note: extraNote || "BACK_TO_LOBBY" });
 }
 
-/* ===== Score: TAKE/ZOLE (pēc tavas tabulas) =====
-   TAKE:
-   - Uzvara 61–90: pay=2
-   - Šmulis 91+: pay=4
-   - Sausā (8 stiķi): pay=6
-   - Zaudējums 31–60: pay=2
-   - Zaudējums 0–30: pay=4
-
-   ZOLE:
-   - Uzvara: pay=10
-   - Zaudējums: pay=12
-*/
+/* ===== Score: TAKE/ZOLE ===== */
 function scoreStandardHand(room) {
   const contract = room.contract; // TAKE/ZOLE
   const bigSeat = room.bigSeat;
@@ -458,64 +463,116 @@ function scoreStandardHand(room) {
   const talonEyes = sumEyes(room.talon);
 
   let bigEyes = sumEyes(bigTaken);
-  if (contract === "TAKE") bigEyes += discardEyes; // TAKE: noraktās kārtis skaitās lielajam
+  if (contract === "TAKE") bigEyes += discardEyes;
 
   const oppEyes = totalEyes - bigEyes;
+  const oppTricks = 8 - bigTricks;
 
-  let pay = 0;
+  let payEach = 0;
   let bigWins = false;
+  let status = "";
   let note = "";
 
   if (contract === "TAKE") {
     bigWins = bigEyes >= 61;
 
     if (bigWins) {
-      if (bigTricks === 8) pay = 6;      // sausā (visi stiķi)
-      else if (bigEyes >= 91) pay = 4;   // šmulis (91+)
-      else pay = 2;                      // 61–90
+      if (bigTricks === 8) {
+        payEach = 6;
+        status = "SAUSĀ (8 stiķi)";
+      } else if (bigEyes >= 91) {
+        payEach = 4;
+        status = "ŠMUĻOS (91+ acis)";
+      } else {
+        payEach = 2;
+        status = "UZVARA (61–90 acis)";
+      }
     } else {
-      if (bigEyes <= 30) pay = 4;        // zaudējums šmuļos (0–30)
-      else pay = 2;                      // 31–60
+      if (bigEyes <= 30) {
+        payEach = 4;
+        status = "ZAUDĒJUMS ŠMUĻOS (0–30 acis)";
+      } else {
+        payEach = 2;
+        status = "ZAUDĒJUMS (31–60 acis)";
+      }
     }
 
-    note = `TAKE: bigEyes=${bigEyes}, oppEyes=${oppEyes}, discardEyes=${discardEyes}, bigTricks=${bigTricks}, pay=${pay}, ${bigWins ? "WIN" : "LOSE"}`;
+    note = `TAKE: bigEyes=${bigEyes}, oppEyes=${oppEyes}, payEach=${payEach}, ${bigWins ? "WIN" : "LOSE"}`;
   }
 
   if (contract === "ZOLE") {
     bigWins = bigEyes >= 61;
-    pay = bigWins ? 10 : 12;
-
-    note = `ZOLE: bigEyes=${bigEyes}, oppEyes=${oppEyes}, talonEyes=${talonEyes}, bigTricks=${bigTricks}, pay=${pay}, ${bigWins ? "WIN" : "LOSE"}`;
+    if (bigWins) {
+      payEach = 10;
+      status = "UZVARA";
+    } else {
+      payEach = 12;
+      status = "ZAUDĒJUMS";
+    }
+    note = `ZOLE: bigEyes=${bigEyes}, talonEyes=${talonEyes}, payEach=${payEach}, ${bigWins ? "WIN" : "LOSE"}`;
   }
 
-  applyPayout(room, bigSeat, pay, bigWins);
+  const deltas = applyPayout(room, bigSeat, payEach, bigWins);
+
+  // NEW: lastResult snapshot (lai UI var parādīt pēc partijas)
+  room.lastResult = {
+    ts: Date.now(),
+    handNo: room.handNo,
+    contract,
+    bigSeat,
+    status,
+    bigWins,
+    payEach,
+    deltas,
+    names: room.players.map((p) => p.username || null),
+    ptsAfter: room.players.map((p) => p.matchPts || 0),
+    bigEyes,
+    oppEyes,
+    bigTricks,
+    oppTricks,
+    talonEyes,
+    discardEyes
+  };
 
   room.phase = "SCORE";
   emitRoom(room, {
     note,
-    scoring: { contract, bigSeat, bigEyes, oppEyes, talonEyes, discardEyes, bigTricks, pay, bigWins }
+    scoring: { contract, bigSeat, status, bigEyes, oppEyes, talonEyes, discardEyes, bigTricks, oppTricks, payEach, bigWins, deltas }
   });
 
   endToLobby(room, "BACK_TO_LOBBY");
 }
 
-/* ===== Score: MAZĀ ZOLE (pēc tavas tabulas) =====
-   - Uzvara (0 stiķi): pay=12
-   - Zaudējums (>=1 stiķis): pay=14
-*/
+/* ===== Score: MAZĀ ZOLE ===== */
 function scoreMazaZole(room, reason) {
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
 
   const bigWins = bigTricks === 0;
-  const pay = bigWins ? 12 : 14;
+  const payEach = bigWins ? 12 : 14;
+  const status = bigWins ? "UZVARA (0 stiķi)" : "ZAUDĒJUMS (paņemts stiķis)";
 
-  applyPayout(room, bigSeat, pay, bigWins);
+  const deltas = applyPayout(room, bigSeat, payEach, bigWins);
+
+  room.lastResult = {
+    ts: Date.now(),
+    handNo: room.handNo,
+    contract: "MAZA",
+    bigSeat,
+    status,
+    bigWins,
+    payEach,
+    deltas,
+    names: room.players.map((p) => p.username || null),
+    ptsAfter: room.players.map((p) => p.matchPts || 0),
+    bigTricks,
+    reason: reason || "END"
+  };
 
   room.phase = "SCORE";
   emitRoom(room, {
-    note: `MAZA: bigTricks=${bigTricks}, ${bigWins ? "WIN" : "LOSE"} (${reason || "END"}) pay=${pay}`,
-    scoring: { contract: "MAZA", bigSeat, bigTricks, pay, bigWins, reason: reason || "END" }
+    note: `MAZA: bigTricks=${bigTricks}, ${bigWins ? "WIN" : "LOSE"} (${reason || "END"})`,
+    scoring: { contract: "MAZA", bigSeat, bigTricks, payEach, bigWins, deltas, reason: reason || "END" }
   });
 
   endToLobby(room, "BACK_TO_LOBBY");
@@ -529,40 +586,61 @@ function scoreGaldins(room) {
   const maxTr = Math.max(...tricks);
   const minTr = Math.min(...tricks);
 
-  const losers = [];
-  for (let s = 0; s < 3; s++) if (tricks[s] === maxTr) losers.push(s);
+  const loserSeats = [];
+  for (let s = 0; s < 3; s++) if (tricks[s] === maxTr) loserSeats.push(s);
 
   const winners = [];
   for (let s = 0; s < 3; s++) if (tricks[s] === minTr) winners.push(s);
   const winnerSeat = winners[0];
 
+  const deltas = [0, 0, 0];
   let note = "";
-  if (losers.length === 1) {
-    const L = losers[0];
-    room.players[L].matchPts -= GALDINS_PAY * 2;
-    for (let s = 0; s < 3; s++) if (s !== L) room.players[s].matchPts += GALDINS_PAY;
-    note = `GALDINS: loser=seat${L} (-${GALDINS_PAY * 2}), others +${GALDINS_PAY}`;
+
+  if (loserSeats.length === 1) {
+    const L = loserSeats[0];
+    deltas[L] -= GALDINS_PAY * 2;
+    for (let s = 0; s < 3; s++) if (s !== L) deltas[s] += GALDINS_PAY;
+    note = `GALDINS: loser=seat${L} by tricks (-${GALDINS_PAY * 2}), others +${GALDINS_PAY}`;
   } else {
-    const [a, b] = losers;
+    // 2 spēlētāji vienādi ar max stiķiem -> tie-break pēc acīm
+    const [a, b] = loserSeats;
 
     if (eyes[a] > eyes[b]) {
-      room.players[a].matchPts -= GALDINS_PAY * 2;
-      room.players[winnerSeat].matchPts += GALDINS_PAY * 2;
-      note = `GALDINS: loser=seat${a} by eyes -> winner seat${winnerSeat} +${GALDINS_PAY * 2}`;
+      deltas[a] -= GALDINS_PAY * 2;
+      deltas[winnerSeat] += GALDINS_PAY * 2;
+      note = `GALDINS: tie tricks; loser=seat${a} by eyes (${eyes[a]}>${eyes[b]}) -> winner seat${winnerSeat} +${GALDINS_PAY * 2}`;
     } else if (eyes[b] > eyes[a]) {
-      room.players[b].matchPts -= GALDINS_PAY * 2;
-      room.players[winnerSeat].matchPts += GALDINS_PAY * 2;
-      note = `GALDINS: loser=seat${b} by eyes -> winner seat${winnerSeat} +${GALDINS_PAY * 2}`;
+      deltas[b] -= GALDINS_PAY * 2;
+      deltas[winnerSeat] += GALDINS_PAY * 2;
+      note = `GALDINS: tie tricks; loser=seat${b} by eyes (${eyes[b]}>${eyes[a]}) -> winner seat${winnerSeat} +${GALDINS_PAY * 2}`;
     } else {
-      room.players[a].matchPts -= GALDINS_PAY;
-      room.players[b].matchPts -= GALDINS_PAY;
-      room.players[winnerSeat].matchPts += GALDINS_PAY * 2;
+      deltas[a] -= GALDINS_PAY;
+      deltas[b] -= GALDINS_PAY;
+      deltas[winnerSeat] += GALDINS_PAY * 2;
       note = `GALDINS: tie (tricks & eyes). seat${a} and seat${b} pay ${GALDINS_PAY} to winner seat${winnerSeat}`;
     }
   }
 
+  for (const p of room.players) {
+    p.matchPts += deltas[p.seat] || 0;
+  }
+
+  room.lastResult = {
+    ts: Date.now(),
+    handNo: room.handNo,
+    contract: "GALDINS",
+    tricks,
+    eyes,
+    loserSeats,
+    winnerSeat,
+    galdinsPay: GALDINS_PAY,
+    deltas,
+    names: room.players.map((p) => p.username || null),
+    ptsAfter: room.players.map((p) => p.matchPts || 0)
+  };
+
   room.phase = "SCORE";
-  emitRoom(room, { note, scoring: { contract: "GALDINS", tricks, eyes, galdinsPay: GALDINS_PAY } });
+  emitRoom(room, { note, scoring: { contract: "GALDINS", tricks, eyes, galdinsPay: GALDINS_PAY, deltas, loserSeats, winnerSeat } });
 
   endToLobby(room, "BACK_TO_LOBBY");
 }
@@ -641,7 +719,10 @@ function sanitizeStateForSeat(room, seat) {
     meta: {
       handSizes: room.hands.map((h) => h.length),
       takenTricks: room.taken.map((t) => trickCount(t))
-    }
+    },
+
+    // NEW
+    lastResult: room.lastResult
   };
 }
 
