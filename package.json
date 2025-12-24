@@ -1,13 +1,10 @@
 {
   "name": "thezone-zole-server",
-  "version": "1.2.0",
-  "description": "thezone.lv Zole MVP server (3-player, commit-reveal fairness, scoring, avatars)",
+  "version": "1.5.0",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18"
   },
   "dependencies": {
     "cors": "^2.8.5",
