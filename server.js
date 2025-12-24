@@ -1,17 +1,14 @@
 /* ============================
-   THEZONE.LV — ZOLE (Klasiskā loģika) v1.5 (BEZ PULĒM)
+   THEZONE.LV — ZOLE v1.5 (BEZ PULĒM) — PILNĀ LOĢIKA
    - 3 spēlētāji, 26 kārtis
-   - Bidding: PASS / TAKE / ZOLE / MAZA (Mazā zole)
+   - READY lobby → NEW_HAND → BIDDING → (TAKE: DISCARD2) → PLAY 8 stiķi → SCORE → LOBBY
+   - Bidding: PASS / TAKE / ZOLE / MAZA
    - TAKE: paņem talonu + NOROK 2 (tikai lielais)
    - ZOLE: bez talona (talons pieskaitās mazajiem)
-   - MAZĀ ZOLE: bez talona, BEZ TRUMPJIEM, mērķis 0 stiķi
-       * uzvara: 6 no katra
-       * zaudējums: 7 katram (tūlītēji, ja paņem 1 stiķi)
-   - Visi PASS: sākas GALDIŅŠ (bez pulēm)
-       * zaudē tas, kam visvairāk stiķu (ja vienādi, skatās acis; ja arī vienādi -> abi zaudē)
-       * talons pielikts klāt 1. un 2. stiķim (attiecīgā stiķa uzvarētājam)
-       * “uz vieninieku” sods konfigurējams ar GALDINS_PAY (default 1)
-   - Commit–reveal fairness (deterministisks shuffle)
+   - MAZĀ ZOLE: bez talona, BEZ TRUMPJIEM, mērķis 0 stiķi (tūlītējs zaudējums, ja paņem 1 stiķi)
+   - Visi PASS: GALDIŅŠ (talons 1./2. stiķim, sods ar GALDINS_PAY)
+   - Commit–reveal fairness (serverCommit + 3 client seed → deterministisks shuffle)
+   - Seat "spoku" FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
    ============================ */
 
 const express = require("express");
@@ -22,7 +19,7 @@ const crypto = require("crypto");
 
 const PORT = process.env.PORT || 10080;
 
-// Galdiņa sods “uz vieninieku” = 1 (zaudētājs dod 1 katram); vari likt 2, ja gribi bargāk.
+// Galdiņa sods “uz vieninieku”
 const GALDINS_PAY = Math.max(1, Math.min(5, parseInt(process.env.GALDINS_PAY || "1", 10) || 1));
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
@@ -42,9 +39,7 @@ app.get("/", (req, res) => res.send("OK"));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: corsOptions.origin, credentials: true },
-});
+const io = new Server(server, { cors: { origin: corsOptions.origin, credentials: true } });
 
 /* ============================
    KĀRTIS + NOTEIKUMI
@@ -98,7 +93,7 @@ function isTrumpStd(c) {
   return c.s === "D" || c.r === "Q" || c.r === "J";
 }
 
-// Trumpju secība (VALIDĀCIJAI) — UI nerādām, bet serverim vajag pareizu salīdzināšanu
+// Trumpju secība (Q♣ Q♠ Q♥ Q♦ J♣ J♠ J♥ J♦ A♦ 10♦ K♦ 9♦ 8♦ 7♦)
 const TRUMP_ORDER = [
   { r: "Q", s: "C" },
   { r: "Q", s: "S" },
@@ -121,10 +116,8 @@ function trumpStrengthStd(c) {
 }
 
 function rulesForContract(contract) {
-  // contract: TAKE / ZOLE / MAZA / GALDINS
   if (contract === "MAZA") return { trumps: false };
-  // TAKE/ZOLE/GALDINS -> standarta trumpji
-  return { trumps: true };
+  return { trumps: true }; // TAKE/ZOLE/GALDINS
 }
 
 function leadFollow(room, leadCard) {
@@ -188,7 +181,7 @@ function pickTrickWinner(room, plays) {
       else {
         const a = trumpStrengthStd(p.card);
         const b = trumpStrengthStd(best.card);
-        if ((a ?? 999) < (b ?? 999)) best = p; // mazāks indekss = stiprāks
+        if ((a ?? 999) < (b ?? 999)) best = p;
       }
     }
     return best ? best.seat : plays[0].seat;
@@ -289,10 +282,8 @@ function newRoom(roomId) {
     dealerSeat: 0,
     handNo: 0,
 
-    // fairness
     fairness: null, // { serverCommit, serverSecret, serverReveal, combinedHash }
 
-    // bidding
     bids: [],
     bidTurnSeat: 0,
 
@@ -362,7 +353,6 @@ function startNewHand(room) {
   room.fairness = { serverCommit, serverSecret, serverReveal: null, combinedHash: null };
 
   room.turnSeat = room.bidTurnSeat;
-
   emitRoom(room, { note: "NEW_HAND" });
 }
 
@@ -412,8 +402,8 @@ function endToLobby(room, extraNote) {
   for (const p of room.players) p.ready = false;
 
   room.dealerSeat = (room.dealerSeat + 1) % 3;
-
   resetHandState(room);
+
   emitRoom(room, { note: extraNote || "BACK_TO_LOBBY" });
 }
 
@@ -431,10 +421,7 @@ function scoreStandardHand(room) {
   const talonEyes = sumEyes(room.talon);
 
   let bigEyes = sumEyes(bigTaken);
-
-  if (contract === "TAKE") {
-    bigEyes += discardEyes; // noraktās skaitās lielajam
-  }
+  if (contract === "TAKE") bigEyes += discardEyes;
 
   const oppEyes = totalEyes - bigEyes;
   const oppTricks = 8 - bigTricks;
@@ -480,17 +467,7 @@ function scoreStandardHand(room) {
   room.phase = "SCORE";
   emitRoom(room, {
     note,
-    scoring: {
-      contract,
-      bigSeat,
-      bigEyes,
-      oppEyes,
-      talonEyes,
-      discardEyes,
-      bigTricks,
-      pay,
-      bigWins
-    }
+    scoring: { contract, bigSeat, bigEyes, oppEyes, talonEyes, discardEyes, bigTricks, pay, bigWins }
   });
 
   endToLobby(room, "BACK_TO_LOBBY");
@@ -509,14 +486,7 @@ function scoreMazaZole(room, reason) {
   room.phase = "SCORE";
   emitRoom(room, {
     note: `MAZA: bigTricks=${bigTricks}, ${bigWins ? "WIN" : "LOSE"} (${reason || "END"})`,
-    scoring: {
-      contract: "MAZA",
-      bigSeat,
-      bigTricks,
-      pay,
-      bigWins,
-      reason: reason || "END"
-    }
+    scoring: { contract: "MAZA", bigSeat, bigTricks, pay, bigWins, reason: reason || "END" }
   });
 
   endToLobby(room, "BACK_TO_LOBBY");
@@ -563,15 +533,7 @@ function scoreGaldins(room) {
   }
 
   room.phase = "SCORE";
-  emitRoom(room, {
-    note,
-    scoring: {
-      contract: "GALDINS",
-      tricks,
-      eyes,
-      galdinsPay: GALDINS_PAY
-    }
-  });
+  emitRoom(room, { note, scoring: { contract: "GALDINS", tricks, eyes, galdinsPay: GALDINS_PAY } });
 
   endToLobby(room, "BACK_TO_LOBBY");
 }
@@ -587,9 +549,7 @@ function computeLegalForSeat(room, seat) {
   if (!must) return hand.slice();
 
   const { trumps } = rulesForContract(room.contract);
-  if (!trumps) {
-    return hand.filter((c) => c.s === follow);
-  }
+  if (!trumps) return hand.filter((c) => c.s === follow);
 
   if (follow === "TRUMP") return hand.filter(isTrumpStd);
   return hand.filter((c) => !isTrumpStd(c) && c.s === follow);
@@ -645,7 +605,6 @@ function sanitizeStateForSeat(room, seat) {
     myHand: room.hands[seat] || [],
     myTaken: room.taken[seat] || [],
 
-    talon: [], // nerādām
     myDiscard: room.bigSeat === seat ? room.discard : [],
 
     legal: computeLegalForSeat(room, seat),
@@ -673,19 +632,18 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
-  // PALĪG: seat izvēle bez “spokiem”
   function pickSeat(room, username) {
-    // 1) ja šis username jau ir istabā, bet atvienots -> atgriežam tieši viņa seat
+    // 1) atgriež seat pēc username, ja tas bija atvienots
     let seat = room.players.findIndex((p) => p.username === username && !p.connected);
     if (seat !== -1) return seat;
 
-    // 2) ja username jau ir istabā un pieslēgts -> aizliedzam dublikātu (lai nebūtu 2 BugatsLV)
+    // 2) aizliedz dublikātu nick, ja tas jau pieslēgts
     const dup = room.players.find((p) => p.username === username && p.connected);
     if (dup) return -2;
 
-    // 3) citādi ņemam pirmo brīvo seat
+    // 3) ņem brīvu seat
     seat = room.players.findIndex((p) => !p.username);
-    return seat; // var būt -1, ja pilns
+    return seat;
   }
 
   socket.on("room:create", (payload, ack) => {
@@ -716,7 +674,6 @@ io.on("connection", (socket) => {
       socket.data.seat = seat;
 
       ack?.({ ok: true, roomId: room.roomId, seat });
-
       emitRoom(room, { note: "JOIN" });
     } catch {
       ack?.({ ok: false, error: "CREATE_FAILED" });
@@ -753,7 +710,6 @@ io.on("connection", (socket) => {
       socket.data.seat = seat;
 
       ack?.({ ok: true, roomId: room.roomId, seat });
-
       emitRoom(room, { note: "JOIN" });
     } catch {
       ack?.({ ok: false, error: "JOIN_FAILED" });
@@ -766,6 +722,7 @@ io.on("connection", (socket) => {
     const room = roomId ? rooms.get(roomId) : null;
 
     if (room && typeof seat === "number") {
+      const keepPts = room.players[seat].matchPts;
       room.players[seat] = {
         seat,
         username: null,
@@ -774,7 +731,7 @@ io.on("connection", (socket) => {
         connected: false,
         socketId: null,
         seed: null,
-        matchPts: room.players[seat].matchPts
+        matchPts: keepPts
       };
       emitRoom(room, { note: "LEAVE" });
     }
@@ -798,7 +755,6 @@ io.on("connection", (socket) => {
     emitRoom(room, { note: "SEED" });
   }
   socket.on("fair:seed", setSeed);
-  socket.on("fair:clientSeed", setSeed);
   socket.on("seed", setSeed);
 
   socket.on("zole:ready", (payload, ack) => {
@@ -847,7 +803,6 @@ io.on("connection", (socket) => {
 
       const passCount = room.bids.filter((b) => b.bid === "PASS").length;
       if (passCount >= 3) {
-        // VISI PASS -> GALDIŅŠ
         room.contract = "GALDINS";
         room.bigSeat = null;
         room.phase = "PLAY";
@@ -966,7 +921,7 @@ io.on("connection", (socket) => {
     room.leaderSeat = winnerSeat;
     room.turnSeat = winnerSeat;
 
-    // GALDIŅŠ: talona kārtis pieliek klāt 1. un 2. stiķim (uzvarētājam)
+    // GALDIŅŠ: talona kārtis pieliek 1. un 2. stiķim (uzvarētājam)
     if (room.contract === "GALDINS") {
       room.galdinsTrickNo += 1;
       if (room.galdinsTrickNo <= 2 && room.galdinsTalonIndex < room.talon.length) {
@@ -977,7 +932,7 @@ io.on("connection", (socket) => {
 
     emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
 
-    // MAZĀ ZOLE: ja lielais paņem kaut 1 stiķi -> tūlītējs zaudējums
+    // MAZĀ ZOLE: ja lielais paņem 1 stiķi -> tūlītējs zaudējums
     if (room.contract === "MAZA" && winnerSeat === room.bigSeat) {
       return scoreMazaZole(room, "TOOK_TRICK");
     }
