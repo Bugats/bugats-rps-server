@@ -11,6 +11,7 @@
    - Seat “spoku” FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
    - FIX: KĀRTIS IZDALĀS UZREIZ pie NEW_HAND (pēc READY)
    - FIX: ROTĀCIJA PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW): next = (seat+2)%3
+   + LOBBY ROOMS LIST (caurspīdīgas istabas + brīvās vietas)
    ============================ */
 
 const express = require("express");
@@ -282,6 +283,81 @@ function safeAvatarUrl(u) {
   }
 }
 
+/* ============================
+   LOBBY ROOMS LIST (PUBLIKĀ INFORMĀCIJA)
+   - nekad nerādām: hands, seeds, talonu, deck, discard utt.
+   ============================ */
+function getRoomSummary(room) {
+  const seats = [0, 1, 2];
+
+  const occ = new Map();
+  for (const p of room.players || []) {
+    if (p && typeof p.seat === "number" && p.username) occ.set(p.seat, p);
+  }
+
+  const openSeats = seats.filter((s) => !occ.has(s));
+
+  return {
+    roomId: room.roomId,
+    phase: room.phase || "LOBBY",
+    handNo: typeof room.handNo === "number" ? room.handNo : 0,
+    contract: room.contract || "",
+    bigSeat: typeof room.bigSeat === "number" ? room.bigSeat : null,
+    dealerSeat: typeof room.dealerSeat === "number" ? room.dealerSeat : 0,
+
+    playerCount: occ.size,
+    openSeats, // piem. [1,2] => brīvas 2 vietas
+
+    players: seats.map((seat) => {
+      const p = occ.get(seat);
+      if (!p) return { seat, empty: true };
+      return {
+        seat,
+        username: p.username,
+        connected: !!p.connected,
+        ready: !!p.ready,
+        matchPts: typeof p.matchPts === "number" ? p.matchPts : 0,
+        avatarUrl: p.avatarUrl || ""
+      };
+    }),
+
+    updatedAt: room.updatedAt || Date.now()
+  };
+}
+
+function listPublicRooms() {
+  const out = [];
+  for (const room of rooms.values()) {
+    if (!room) continue;
+    const cnt = (room.players || []).filter((p) => p && p.username).length;
+
+    // “atvērta istaba” = vismaz 1 spēlētājs (nevis tukšs ieraksts mapā)
+    if (cnt <= 0) continue;
+
+    out.push(getRoomSummary(room));
+  }
+
+  // kārtošana: vispirms ar brīvām vietām, tad pēc ID
+  out.sort((a, b) => {
+    const aOpen = a.openSeats?.length || 0;
+    const bOpen = b.openSeats?.length || 0;
+    if (aOpen !== bOpen) return bOpen - aOpen;
+    return String(a.roomId).localeCompare(String(b.roomId));
+  });
+
+  return out;
+}
+
+function broadcastRoomsUpdate() {
+  const payload = { ok: true, rooms: listPublicRooms(), ts: Date.now() };
+  io.to("lobby").emit("rooms:update", payload);
+}
+
+// HTTP “pull”
+app.get("/rooms", (_req, res) => {
+  res.json({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
+});
+
 function newRoom(roomId) {
   return {
     roomId,
@@ -318,7 +394,10 @@ function newRoom(roomId) {
     galdsTalonIndex: 0,
 
     // pēdējais rezultāts (lai UI var parādīt toast + scoreLast)
-    lastResult: null
+    lastResult: null,
+
+    // lobby list timestamp
+    updatedAt: Date.now()
   };
 }
 
@@ -712,12 +791,17 @@ function sanitizeStateForSeat(room, seat) {
 }
 
 function emitRoom(room, extra) {
+  room.updatedAt = Date.now();
+
   for (const p of room.players) {
     if (!p.socketId) continue;
     const s = io.sockets.sockets.get(p.socketId);
     if (!s) continue;
     s.emit("room:state", sanitizeStateForSeat(room, p.seat), extra || null);
   }
+
+  // Lobby rooms list vienmēr sinhronā
+  broadcastRoomsUpdate();
 }
 
 /* ============================
@@ -725,6 +809,19 @@ function emitRoom(room, extra) {
    ============================ */
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
+
+  // Lobby subscribe
+  socket.on("lobby:join", (_payload, ack) => {
+    socket.join("lobby");
+    try { ack?.({ ok: true }); } catch {}
+    // uzreiz iedodam sarakstu
+    try { socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() }); } catch {}
+  });
+
+  // Pull variants caur socket
+  socket.on("room:list", (_payload, ack) => {
+    ack?.({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
+  });
 
   function pickSeat(room, username) {
     // 1) atgriež seat pēc username, ja tas bija atvienots
