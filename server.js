@@ -1,37 +1,16 @@
 /* ============================
-   THEZONE.LV — ZOLE v1.7 (BEZ PULĒM)
-   - Solīšana:
-       "ŅEMT GALDU" (agrāk TAKE)
-       "GARĀM"      (agrāk PASS)
-       "ZOLE"
-       "MAZĀ" (Mazā zole)
-     Ja visi 3 pasaka "GARĀM" => "GALDS" (tavs padi/galds), bez redeal.
-
-   - Punkti (cietā/sporta sistēma):
-     ŅEMT GALDU:
-       WIN 61–90: +2 no katra
-       WIN 91+:   +4 no katra
-       WIN SAUSĀ (Mazajiem 0 stiķi): +6 no katra
-       LOSE 31–60: -2 katram
-       LOSE 0–30:  -4 katram
-       LOSE SAUSĀ (Lielajam 0 stiķi): -6 katram
-
-     ZOLE:
-       WIN (>=61): +10 no katra
-       LOSE:       -12 katram
-
-     MAZĀ:
-       WIN (0 stiķi): +12 no katra
-       LOSE (>=1 stiķis): -14 katram (tūlītēja zaude, ja paņem 1 stiķi)
-
-   - GALDS (visi garām):
-       Talons pieliekas 1. un 2. stiķa uzvarētājam (lai kopā 120 acis).
-       Zaud tas, kam visvairāk acis.
-       Punkti:
-         1 zaudētājs: zaud -2, pārējie +1
-         2 vienādi visvairāk: abi -2, trešais +4
-         3 vienādi: 0
-
+   THEZONE.LV — ZOLE (BEZ PULĒM) — PILNĀ LOĢIKA (LV nosaukumi)
+   - 3 spēlētāji, 26 kārtis
+   - READY lobby → NEW_HAND → BIDDING → (ŅEMT GALDU: DISCARD2) → PLAY 8 stiķi → LOBBY
+   - Solīšana: GARĀM / ŅEMT GALDU / ZOLE / MAZĀ
+   - ŅEMT GALDU: paņem talonu + NOROK 2 (tikai lielais)
+   - ZOLE: bez talona (talons “paliek mazajiem” caur oppEyes = 120 - bigEyes)
+   - MAZĀ: bez talona, BEZ TRUMPJIEM, mērķis 0 stiķi (tūlītējs zaudējums, ja paņem 1 stiķi)
+   - Visi GARĀM: GALDS (tava esošā galdiņa loģika: primāri stiķi, ja vienādi -> acis)
+   - Commit–reveal fairness (serverCommit + 3 client seed → deterministisks shuffle)
+   - Seat “spoku” FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
+   - FIX: KĀRTIS IZDALĀS UZREIZ pie NEW_HAND (pēc READY)
+   - FIX: ROTĀCIJA PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW): next = (seat+2)%3
    ============================ */
 
 const express = require("express");
@@ -42,10 +21,11 @@ const crypto = require("crypto");
 
 const PORT = process.env.PORT || 10080;
 
-// GALDS zaudētāja punkti (parasti -2)
-let GALDS_LOSER_PTS = parseInt(process.env.GALDS_LOSER_PTS || "-2", 10);
-if (!Number.isFinite(GALDS_LOSER_PTS) || GALDS_LOSER_PTS === 0) GALDS_LOSER_PTS = -2;
-if (GALDS_LOSER_PTS > 0) GALDS_LOSER_PTS = -Math.abs(GALDS_LOSER_PTS);
+// “Galda/Galdiņa” pamata likme (uz vieninieku = 1)
+const GALDS_PAY = Math.max(
+  1,
+  Math.min(5, parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "1", 10) || 1)
+);
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
   .split(",")
@@ -61,9 +41,7 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "256kb" }));
 
 app.get("/", (req, res) => res.send("OK"));
-app.get("/health", (req, res) =>
-  res.json({ ok: true, galdsLoserPts: GALDS_LOSER_PTS })
-);
+app.get("/health", (req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -72,7 +50,7 @@ const io = new Server(server, {
 
 /* ============================
    SEAT ROTĀCIJA (CW)
-   next = (seat + 2) % 3
+   next = (seat+2)%3
    ============================ */
 function nextSeatCW(seat) {
   return (seat + 2) % 3;
@@ -84,11 +62,13 @@ function nextSeatCW(seat) {
 
 const EYES = { A: 11, "10": 10, K: 4, Q: 3, J: 2, "9": 0, "8": 0, "7": 0 };
 
+// Standarta (ar trumpjiem) “parastā masta” stiprums: A > 10 > K > 9
 const NON_TRUMP_RANK_STD = { A: 4, "10": 3, K: 2, "9": 1 };
 function nonTrumpStrengthStd(c) {
   return NON_TRUMP_RANK_STD[c.r] ?? 0;
 }
 
+// Bez trumpjiem (Mazā) stiprums: A > 10 > K > Q > J > 9 > 8 > 7
 const NO_TRUMP_RANK = { A: 7, "10": 6, K: 5, Q: 4, J: 3, "9": 2, "8": 1, "7": 0 };
 function noTrumpStrength(c) {
   return NO_TRUMP_RANK[c.r] ?? 0;
@@ -108,15 +88,12 @@ function buildDeck() {
 function cardEyes(c) {
   return EYES[c.r] ?? 0;
 }
-
 function sumEyes(cards) {
-  return cards.reduce((acc, c) => acc + cardEyes(c), 0);
+  return (cards || []).reduce((acc, c) => acc + cardEyes(c), 0);
 }
-
 function sameCard(a, b) {
   return a && b && a.r === b.r && a.s === b.s;
 }
-
 function cardKey(c) {
   return `${c.r}${c.s}`;
 }
@@ -150,10 +127,17 @@ function trumpStrengthStd(c) {
   return TRUMP_INDEX.get(cardKey(c));
 }
 
+/* ============================
+   LV kontrakti (kanoniskie)
+   ============================ */
+const CONTRACT_TAKE = "ŅEMT GALDU";
+const CONTRACT_ZOLE = "ZOLE";
+const CONTRACT_MAZA = "MAZĀ";
+const CONTRACT_GALDS = "GALDS";
+
 function rulesForContract(contract) {
-  // MAZĀ = bez trumpjiem, viss pārējais (ŅEMT/ZOLE/GALDS) = ar standarta trumpjiem
-  if (contract === "MAZĀ") return { trumps: false };
-  return { trumps: true };
+  if (contract === CONTRACT_MAZA) return { trumps: false };
+  return { trumps: true }; // ŅEMT GALDU/ZOLE/GALDS
 }
 
 function leadFollow(room, leadCard) {
@@ -167,9 +151,7 @@ function hasFollow(hand, follow, room) {
   if (!follow) return false;
   const { trumps } = rulesForContract(room.contract);
 
-  if (!trumps) {
-    return hand.some((c) => c.s === follow);
-  }
+  if (!trumps) return hand.some((c) => c.s === follow);
 
   if (follow === "TRUMP") return hand.some(isTrumpStd);
   return hand.some((c) => !isTrumpStd(c) && c.s === follow);
@@ -217,7 +199,7 @@ function pickTrickWinner(room, plays) {
       else {
         const a = trumpStrengthStd(p.card);
         const b = trumpStrengthStd(best.card);
-        if ((a ?? 999) < (b ?? 999)) best = p;
+        if ((a ?? 999) < (b ?? 999)) best = p; // mazāks indekss = stiprāks
       }
     }
     return best ? best.seat : plays[0].seat;
@@ -232,22 +214,19 @@ function pickTrickWinner(room, plays) {
 }
 
 function trickCount(cards) {
-  return Math.floor(cards.length / 3);
+  return Math.floor(((cards || []).length) / 3);
 }
 
 /* ============================
    FAIR RNG — commit/reveal
    ============================ */
-
 function sha256hex(str) {
   return crypto.createHash("sha256").update(str).digest("hex");
 }
-
 function seedToU32(hex) {
   const h = hex.slice(0, 8);
   return parseInt(h, 16) >>> 0;
 }
-
 function mulberry32(seed) {
   let t = seed >>> 0;
   return function () {
@@ -258,7 +237,6 @@ function mulberry32(seed) {
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
   };
 }
-
 function shuffleDeterministic(arr, seedHex) {
   const a = arr.slice();
   const rng = mulberry32(seedToU32(seedHex));
@@ -272,7 +250,6 @@ function shuffleDeterministic(arr, seedHex) {
 /* ============================
    ISTABAS / STĀVOKLIS
    ============================ */
-
 const rooms = new Map();
 
 function normRoomId(roomId) {
@@ -318,13 +295,13 @@ function newRoom(roomId) {
     dealerSeat: 0,
     handNo: 0,
 
-    fairness: null,
+    fairness: null, // { serverCommit, serverSecret, serverReveal, combinedHash }
 
     bids: [],
     bidTurnSeat: 0,
 
-    contract: null, // "ŅEMT GALDU" / "ZOLE" / "MAZĀ" / "GALDS"
-    bigSeat: null,
+    contract: null,   // ŅEMT GALDU / ZOLE / MAZĀ / GALDS
+    bigSeat: null,    // ŅEMT GALDU/ZOLE/MAZĀ gadījumā
 
     deck: null,
     hands: [[], [], []],
@@ -336,10 +313,11 @@ function newRoom(roomId) {
     turnSeat: null,
     trickPlays: [],
 
-    // GALDS: talons 1./2. stiķim
+    // GALDS (talons 1./2. stiķim)
     galdsTrickNo: 0,
     galdsTalonIndex: 0,
 
+    // pēdējais rezultāts (lai UI var parādīt toast + scoreLast)
     lastResult: null
   };
 }
@@ -429,20 +407,29 @@ function preparePlayPhase(room) {
   room.turnSeat = room.leaderSeat;
 }
 
-/* ============================
-   PUNKTU PALĪG: deltas
-   ============================ */
-function applyDeltas(room, deltas) {
-  for (const p of room.players) {
-    p.matchPts += (deltas[p.seat] || 0);
-  }
+function applyPayEachSigned(room, bigSeat, payEachSigned) {
+  // payEachSigned: +2 => lielais saņem +2 no katra; -2 => lielais maksā -2 katram
+  room.players[bigSeat].matchPts += payEachSigned * 2;
+  for (const p of room.players) if (p.seat !== bigSeat) p.matchPts -= payEachSigned;
+}
+
+function finishHandToLobby(room, lastResult, extraNote) {
+  room.lastResult = lastResult || null;
+
+  room.phase = "LOBBY";
+  for (const p of room.players) p.ready = false;
+
+  room.dealerSeat = nextSeatCW(room.dealerSeat);
+  resetHandState(room);
+
+  emitRoom(room, { note: extraNote || "BACK_TO_LOBBY" });
 }
 
 /* ============================
-   SCORE: ŅEMT GALDU / ZOLE
+   SCORE — ŅEMT GALDU / ZOLE
    ============================ */
 function scoreTakeOrZole(room) {
-  const contract = room.contract; // "ŅEMT GALDU" / "ZOLE"
+  const contract = room.contract; // ŅEMT GALDU / ZOLE
   const bigSeat = room.bigSeat;
 
   const totalEyes = 120;
@@ -454,193 +441,171 @@ function scoreTakeOrZole(room) {
   const talonEyes = sumEyes(room.talon);
 
   let bigEyes = sumEyes(bigTaken);
-  if (contract === "ŅEMT GALDU") bigEyes += discardEyes;
+  if (contract === CONTRACT_TAKE) bigEyes += discardEyes;
 
   const oppEyes = totalEyes - bigEyes;
   const oppTricks = 8 - bigTricks;
 
-  let payEach = 0;
+  let payEachSigned = 0;
   let bigWins = false;
   let status = "";
 
-  if (contract === "ŅEMT GALDU") {
-    bigWins = bigEyes >= 61; // 60 = zaudējums
+  if (contract === CONTRACT_TAKE) {
+    bigWins = bigEyes >= 61; // 60 = praktiski zaudējums
 
     if (bigWins) {
-      if (oppTricks === 0) {
-        payEach = 6;
-        status = "UZVARA SAUSĀ (M 0 stiķi)";
+      if (bigTricks === 8) {
+        payEachSigned = +6;
+        status = "UZVAR SAUSĀ";
       } else if (bigEyes >= 91) {
-        payEach = 4;
-        status = "UZVARA ŠMUĻOS (91+ acis)";
+        payEachSigned = +4;
+        status = "UZVAR ŠMUĻOS";
       } else {
-        payEach = 2;
-        status = "UZVARA (61–90 acis)";
+        payEachSigned = +2;
+        status = "UZVAR";
       }
     } else {
       if (bigTricks === 0) {
-        payEach = 6;
-        status = "ZAUDĒJUMS SAUSĀ (L 0 stiķi)";
+        payEachSigned = -6;
+        status = "ZAUDĒ SAUSĀ";
       } else if (bigEyes <= 30) {
-        payEach = 4;
-        status = "ZAUDĒJUMS ŠMUĻOS (0–30 acis)";
+        payEachSigned = -4;
+        status = "ZAUDĒ ŠMUĻOS";
       } else {
-        payEach = 2;
-        status = "ZAUDĒJUMS (31–60 acis)";
+        payEachSigned = -2;
+        status = "ZAUDĒ";
       }
     }
   }
 
-  if (contract === "ZOLE") {
+  if (contract === CONTRACT_ZOLE) {
     bigWins = bigEyes >= 61;
-    if (bigWins) {
-      payEach = 10;
-      status = "UZVARA (>=61 acis)";
-    } else {
-      payEach = 12;
-      status = "ZAUDĒJUMS (<61 acis)";
-    }
+    payEachSigned = bigWins ? +10 : -12;
+    status = bigWins ? "UZVAR" : "ZAUDĒ";
   }
 
-  const deltas = [0, 0, 0];
-  if (bigWins) {
-    deltas[bigSeat] += payEach * 2;
-    for (let s = 0; s < 3; s++) if (s !== bigSeat) deltas[s] -= payEach;
-  } else {
-    deltas[bigSeat] -= payEach * 2;
-    for (let s = 0; s < 3; s++) if (s !== bigSeat) deltas[s] += payEach;
-  }
-  applyDeltas(room, deltas);
+  applyPayEachSigned(room, bigSeat, payEachSigned);
 
-  room.lastResult = {
+  const names = room.players.map((p) => p.username || null);
+  const res = {
     ts: Date.now(),
-    handNo: room.handNo,
     contract,
     bigSeat,
-    status,
     bigWins,
-    payEach,
-    deltas,
-    names: room.players.map((p) => p.username || null),
-    ptsAfter: room.players.map((p) => p.matchPts || 0),
+    status,
+    payEach: payEachSigned, // signed
     bigEyes,
     oppEyes,
     bigTricks,
     oppTricks,
     talonEyes,
-    discardEyes
+    discardEyes,
+    names
   };
 
-  room.phase = "SCORE";
-  emitRoom(room, { note: `SCORE_${contract}` });
-
-  endToLobby(room, "BACK_TO_LOBBY");
+  finishHandToLobby(room, res, "HAND_FINISHED");
 }
 
 /* ============================
-   SCORE: MAZĀ
+   SCORE — MAZĀ
    ============================ */
 function scoreMaza(room, reason) {
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
-
   const bigWins = bigTricks === 0;
-  const payEach = bigWins ? 12 : 14;
-  const status = bigWins ? "UZVARA (0 stiķi)" : "ZAUDĒJUMS (paņemts stiķis)";
 
-  const deltas = [0, 0, 0];
-  if (bigWins) {
-    deltas[bigSeat] += payEach * 2;
-    for (let s = 0; s < 3; s++) if (s !== bigSeat) deltas[s] -= payEach;
-  } else {
-    deltas[bigSeat] -= payEach * 2;
-    for (let s = 0; s < 3; s++) if (s !== bigSeat) deltas[s] += payEach;
-  }
-  applyDeltas(room, deltas);
+  const payEachSigned = bigWins ? +12 : -14;
+  const status = bigWins ? "UZVAR" : "ZAUDĒ";
 
-  room.lastResult = {
+  applyPayEachSigned(room, bigSeat, payEachSigned);
+
+  const names = room.players.map((p) => p.username || null);
+  const res = {
     ts: Date.now(),
-    handNo: room.handNo,
-    contract: "MAZĀ",
+    contract: CONTRACT_MAZA,
     bigSeat,
-    status,
     bigWins,
-    payEach,
-    deltas,
-    names: room.players.map((p) => p.username || null),
-    ptsAfter: room.players.map((p) => p.matchPts || 0),
+    status,
+    payEach: payEachSigned,
     bigTricks,
-    reason: reason || "END"
+    reason: reason || "END",
+    names
   };
 
-  room.phase = "SCORE";
-  emitRoom(room, { note: `SCORE_MAZA_${reason || "END"}` });
-
-  endToLobby(room, "BACK_TO_LOBBY");
+  finishHandToLobby(room, res, "HAND_FINISHED");
 }
 
 /* ============================
-   SCORE: GALDS (visi garām)
+   SCORE — GALDS (visi GARĀM)
+   primāri: visvairāk stiķu zaudē
+   ja 2 vienādi max stiķi -> tie-break acis
+   ja arī acis vienādi -> abi “dalīti” maksā
    ============================ */
 function scoreGalds(room) {
+  const tricks = room.taken.map((t) => trickCount(t));
   const eyes = room.taken.map((t) => sumEyes(t));
-  const maxEyes = Math.max(...eyes);
 
-  const loserSeats = [];
-  for (let s = 0; s < 3; s++) if (eyes[s] === maxEyes) loserSeats.push(s);
+  const maxTr = Math.max(...tricks);
+  const minTr = Math.min(...tricks);
 
-  const deltas = [0, 0, 0];
+  const losers = [];
+  for (let s = 0; s < 3; s++) if (tricks[s] === maxTr) losers.push(s);
 
-  if (loserSeats.length === 3) {
-    // visi vienādi -> 0
+  const winners = [];
+  for (let s = 0; s < 3; s++) if (tricks[s] === minTr) winners.push(s);
+  const winnerSeat = winners[0];
+
+  // Punkti:
+  // - ja viens zaudētājs: zaudētājs -2*GALDS_PAY, pārējie +GALDS_PAY
+  // - ja 2 zaudētāji (max stiķi): tie-break acis; ja acis vienādi -> abi -GALDS_PAY, trešais +2*GALDS_PAY
+  let loserSeats = [];
+  let note = "";
+
+  if (losers.length === 1) {
+    const L = losers[0];
+    room.players[L].matchPts -= GALDS_PAY * 2;
+    for (let s = 0; s < 3; s++) if (s !== L) room.players[s].matchPts += GALDS_PAY;
+    loserSeats = [L];
+    note = `GALDS: loser=seat${L} (max tricks)`;
+  } else if (losers.length === 2) {
+    const [a, b] = losers;
+
+    if (eyes[a] > eyes[b]) {
+      room.players[a].matchPts -= GALDS_PAY * 2;
+      room.players[winnerSeat].matchPts += GALDS_PAY * 2;
+      loserSeats = [a];
+      note = `GALDS: tie max tricks; loser=seat${a} by eyes`;
+    } else if (eyes[b] > eyes[a]) {
+      room.players[b].matchPts -= GALDS_PAY * 2;
+      room.players[winnerSeat].matchPts += GALDS_PAY * 2;
+      loserSeats = [b];
+      note = `GALDS: tie max tricks; loser=seat${b} by eyes`;
+    } else {
+      room.players[a].matchPts -= GALDS_PAY;
+      room.players[b].matchPts -= GALDS_PAY;
+      room.players[winnerSeat].matchPts += GALDS_PAY * 2;
+      loserSeats = [a, b];
+      note = `GALDS: tie max tricks & eyes; split pay`;
+    }
   } else {
-    const sumLosers = GALDS_LOSER_PTS * loserSeats.length; // negatīvs
-    for (const s of loserSeats) deltas[s] += GALDS_LOSER_PTS;
-
-    const winners = [];
-    for (let s = 0; s < 3; s++) if (!loserSeats.includes(s)) winners.push(s);
-
-    const winDelta = winners.length > 0 ? Math.round((-sumLosers) / winners.length) : 0;
-    for (const s of winners) deltas[s] += winDelta;
+    note = `GALDS: all equal tricks`;
   }
 
-  applyDeltas(room, deltas);
-
-  room.lastResult = {
+  const names = room.players.map((p) => p.username || null);
+  const res = {
     ts: Date.now(),
-    handNo: room.handNo,
-    contract: "GALDS",
-    status: "GALDS (visi garām) — zaud visvairāk acis",
+    contract: CONTRACT_GALDS,
+    tricks,
     eyes,
     loserSeats,
-    galdsLoserPts: GALDS_LOSER_PTS,
-    deltas,
-    names: room.players.map((p) => p.username || null),
-    ptsAfter: room.players.map((p) => p.matchPts || 0)
+    winnerSeat,
+    galdsPay: GALDS_PAY,
+    names
   };
 
-  room.phase = "SCORE";
-  emitRoom(room, { note: "SCORE_GALDS" });
-
-  endToLobby(room, "BACK_TO_LOBBY");
+  finishHandToLobby(room, res, "HAND_FINISHED");
 }
 
-/* ============================
-   LOBBY atgriešanās + dīlera rotācija
-   ============================ */
-function endToLobby(room, extraNote) {
-  room.phase = "LOBBY";
-  for (const p of room.players) p.ready = false;
-
-  room.dealerSeat = nextSeatCW(room.dealerSeat);
-  resetHandState(room);
-
-  emitRoom(room, { note: extraNote || "BACK_TO_LOBBY" });
-}
-
-/* ============================
-   LEGAL
-   ============================ */
 function computeLegalForSeat(room, seat) {
   if (room.phase !== "PLAY") return [];
   if (room.turnSeat !== seat) return [];
@@ -696,7 +661,9 @@ function sanitizeStateForSeat(room, seat) {
 
     rules: {
       trumpsEnabled: !!trumps,
-      galdsLoserPts: GALDS_LOSER_PTS
+      galdsPay: GALDS_PAY,
+      galdsLoserPts: -(GALDS_PAY * 2),
+      galdsSplitLoserPts: -GALDS_PAY
     },
 
     leaderSeat: room.leaderSeat,
@@ -733,17 +700,19 @@ function emitRoom(room, extra) {
 /* ============================
    SOCKET.IO
    ============================ */
-
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
   function pickSeat(room, username) {
+    // 1) atgriež seat pēc username, ja tas bija atvienots
     let seat = room.players.findIndex((p) => p.username === username && !p.connected);
     if (seat !== -1) return seat;
 
+    // 2) aizliedz dublikātu nick, ja tas jau pieslēgts
     const dup = room.players.find((p) => p.username === username && p.connected);
     if (dup) return -2;
 
+    // 3) ņem brīvu seat
     seat = room.players.findIndex((p) => !p.username);
     return seat;
   }
@@ -852,6 +821,7 @@ io.on("connection", (socket) => {
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return;
 
+    // lock seed pēc izdalīšanas (fairness)
     if (room.deck && room.deck.length) return;
 
     const seed = String(seedRaw || "").trim().slice(0, 64);
@@ -859,6 +829,7 @@ io.on("connection", (socket) => {
 
     room.players[seat].seed = seed;
 
+    // ja hand jau ir sācies un vēl nav izdalīts, izdalām tiklīdz pēdējais seed atnāk
     if (room.phase === "BIDDING" && room.fairness && !room.deck) {
       const did = dealIfReady(room);
       emitRoom(room, { note: did ? "AUTO_DEAL_OK" : "SEED" });
@@ -897,81 +868,74 @@ io.on("connection", (socket) => {
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
 
+    // drošībai, ja nav izdalīts
     if (!room.deck) {
       const did = dealIfReady(room);
       if (!did) return ack?.({ ok: false, error: "WAIT_SEEDS" });
       emitRoom(room, { note: "DEAL_OK" });
     }
 
-    const bidRaw = String(payload?.bid || "").toUpperCase().trim();
+    let bidRaw = String(payload?.bid || "").toUpperCase().trim();
 
-    // Pieņemam arī vecos (drošībai), bet saglabājam jaunajos nosaukumos
-    const isGaram = bidRaw === "GARĀM" || bidRaw === "GARAM" || bidRaw === "PASS";
-    const isNemt =
-      bidRaw === "ŅEMT GALDU" ||
-      bidRaw === "NEMT GALDU" ||
-      bidRaw === "ŅEMT" ||
-      bidRaw === "NEMT" ||
-      bidRaw === "TAKE";
+    // pieņem arī vecos alias
+    if (bidRaw === "PASS") bidRaw = "GARĀM";
+    if (bidRaw === "TAKE") bidRaw = "ŅEMT GALDU";
 
-    const isZole = bidRaw === "ZOLE";
-    const isMaza =
-      bidRaw === "MAZĀ" ||
-      bidRaw === "MAZA" ||
-      bidRaw === "MAZĀ ZOLE" ||
-      bidRaw === "MAZA ZOLE" ||
-      bidRaw === "MAZA_ZOLE";
+    // MAZĀ alias
+    if (bidRaw === "MAZA_ZOLE" || bidRaw === "MAZA ZOLE" || bidRaw === "MAZA" || bidRaw === "MAZĀ ZOLE")
+      bidRaw = "MAZĀ";
 
-    if (!isGaram && !isNemt && !isZole && !isMaza) return ack?.({ ok: false, error: "BAD_BID" });
+    const allowed = new Set(["GARĀM", "ŅEMT GALDU", "ZOLE", "MAZĀ"]);
+    if (!allowed.has(bidRaw)) return ack?.({ ok: false, error: "BAD_BID" });
 
-    const bidName = isGaram ? "GARĀM" : isNemt ? "ŅEMT GALDU" : isZole ? "ZOLE" : "MAZĀ";
-    room.bids.push({ seat, bid: bidName });
+    room.bids.push({ seat, bid: bidRaw });
 
-    if (bidName === "GARĀM") {
+    if (bidRaw === "GARĀM") {
       room.turnSeat = nextSeatCW(room.turnSeat);
 
-      const garamCount = room.bids.filter((b) => b.bid === "GARĀM").length;
-      if (garamCount >= 3) {
-        // visi garām => GALDS
-        room.contract = "GALDS";
+      const passCount = room.bids.filter((b) => b.bid === "GARĀM").length;
+      if (passCount >= 3) {
+        room.contract = CONTRACT_GALDS;
         room.bigSeat = null;
+
         room.phase = "PLAY";
         room.trickPlays = [];
         room.turnSeat = room.leaderSeat;
+
         room.galdsTrickNo = 0;
         room.galdsTalonIndex = 0;
 
         emitRoom(room, { note: "ALL_GARAM_GALDS" });
-        return ack?.({ ok: true, allGaram: true });
+        return ack?.({ ok: true, allPass: true, mode: CONTRACT_GALDS });
       }
 
-      emitRoom(room, { note: "GARĀM" });
+      emitRoom(room, { note: "GARAM" });
       return ack?.({ ok: true });
     }
 
-    // ŅEMT GALDU / ZOLE / MAZĀ
+    // ŅEMT GALDU / ZOLE / MAZĀ beidz solīšanu uzreiz
     room.bigSeat = seat;
 
-    if (bidName === "ŅEMT GALDU") {
-      room.contract = "ŅEMT GALDU";
+    if (bidRaw === "ŅEMT GALDU") {
+      room.contract = CONTRACT_TAKE;
       room.phase = "DISCARD";
 
       room.hands[seat] = (room.hands[seat] || []).concat(room.talon);
       room.turnSeat = seat;
 
-      emitRoom(room, { note: "NEMT_SELECTED" });
+      emitRoom(room, { note: "TAKE_SELECTED" });
       return ack?.({ ok: true });
     }
 
-    if (bidName === "ZOLE") {
-      room.contract = "ZOLE";
+    if (bidRaw === "ZOLE") {
+      room.contract = CONTRACT_ZOLE;
       preparePlayPhase(room);
       emitRoom(room, { note: "ZOLE_SELECTED" });
       return ack?.({ ok: true });
     }
 
-    if (bidName === "MAZĀ") {
-      room.contract = "MAZĀ";
+    if (bidRaw === "MAZĀ") {
+      room.contract = CONTRACT_MAZA;
       preparePlayPhase(room);
       emitRoom(room, { note: "MAZA_SELECTED" });
       return ack?.({ ok: true });
@@ -988,7 +952,7 @@ io.on("connection", (socket) => {
 
     if (room.phase !== "DISCARD") return ack?.({ ok: false, error: "NOT_DISCARD" });
     if (room.bigSeat !== seat) return ack?.({ ok: false, error: "NOT_BIG" });
-    if (room.contract !== "ŅEMT GALDU") return ack?.({ ok: false, error: "NOT_NEMT" });
+    if (room.contract !== CONTRACT_TAKE) return ack?.({ ok: false, error: "NOT_TAKE" });
 
     const discard = Array.isArray(payload?.discard) ? payload.discard : [];
     if (discard.length !== 2) return ack?.({ ok: false, error: "NEED_2" });
@@ -1051,8 +1015,8 @@ io.on("connection", (socket) => {
     room.leaderSeat = winnerSeat;
     room.turnSeat = winnerSeat;
 
-    // GALDS: talons 1./2. stiķa uzvarētājam
-    if (room.contract === "GALDS") {
+    // GALDS: talona kārtis pieliek 1. un 2. stiķim (uzvarētājam)
+    if (room.contract === CONTRACT_GALDS) {
       room.galdsTrickNo += 1;
       if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
         room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
@@ -1063,18 +1027,19 @@ io.on("connection", (socket) => {
     emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
 
     // MAZĀ: ja lielais paņem 1 stiķi -> tūlītējs zaudējums
-    if (room.contract === "MAZĀ" && winnerSeat === room.bigSeat) {
+    if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
       return scoreMaza(room, "TOOK_TRICK");
     }
 
     const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
     if (!allHandsEmpty) return;
 
-    if (room.contract === "ŅEMT GALDU" || room.contract === "ZOLE") return scoreTakeOrZole(room);
-    if (room.contract === "MAZĀ") return scoreMaza(room, "END");
-    if (room.contract === "GALDS") return scoreGalds(room);
+    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
+    if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
+    if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
 
-    scoreTakeOrZole(room);
+    // fallback
+    return scoreTakeOrZole(room);
   });
 
   socket.on("disconnect", () => {
@@ -1113,6 +1078,6 @@ function normalizeCard(x) {
 
 server.listen(PORT, () => {
   console.log(`[zole] listening on :${PORT}`);
-  console.log(`[zole] GALDS_LOSER_PTS=${GALDS_LOSER_PTS}`);
+  console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
   console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
 });
