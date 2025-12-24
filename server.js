@@ -433,7 +433,18 @@ function endToLobby(room, extraNote) {
   emitRoom(room, { note: extraNote || "BACK_TO_LOBBY" });
 }
 
-/* ===== Score: TAKE/ZOLE ===== */
+/* ===== Score: TAKE/ZOLE (pēc tavas tabulas) =====
+   TAKE:
+   - Uzvara 61–90: pay=2
+   - Šmulis 91+: pay=4
+   - Sausā (8 stiķi): pay=6
+   - Zaudējums 31–60: pay=2
+   - Zaudējums 0–30: pay=4
+
+   ZOLE:
+   - Uzvara: pay=10
+   - Zaudējums: pay=12
+*/
 function scoreStandardHand(room) {
   const contract = room.contract; // TAKE/ZOLE
   const bigSeat = room.bigSeat;
@@ -447,10 +458,9 @@ function scoreStandardHand(room) {
   const talonEyes = sumEyes(room.talon);
 
   let bigEyes = sumEyes(bigTaken);
-  if (contract === "TAKE") bigEyes += discardEyes;
+  if (contract === "TAKE") bigEyes += discardEyes; // TAKE: noraktās kārtis skaitās lielajam
 
   const oppEyes = totalEyes - bigEyes;
-  const oppTricks = 8 - bigTricks;
 
   let pay = 0;
   let bigWins = false;
@@ -460,32 +470,22 @@ function scoreStandardHand(room) {
     bigWins = bigEyes >= 61;
 
     if (bigWins) {
-      if (oppTricks === 0) pay = 3;
-      else if (oppEyes < 30) pay = 2;
-      else pay = 1;
+      if (bigTricks === 8) pay = 6;      // sausā (visi stiķi)
+      else if (bigEyes >= 91) pay = 4;   // šmulis (91+)
+      else pay = 2;                      // 61–90
     } else {
-      if (bigTricks === 0) pay = 4;
-      else if (bigEyes < 31) pay = 3;
-      else pay = 2;
+      if (bigEyes <= 30) pay = 4;        // zaudējums šmuļos (0–30)
+      else pay = 2;                      // 31–60
     }
 
-    note = `TAKE: bigEyes=${bigEyes}, oppEyes=${oppEyes}, pay=${pay}, ${bigWins ? "WIN" : "LOSE"}`;
+    note = `TAKE: bigEyes=${bigEyes}, oppEyes=${oppEyes}, discardEyes=${discardEyes}, bigTricks=${bigTricks}, pay=${pay}, ${bigWins ? "WIN" : "LOSE"}`;
   }
 
   if (contract === "ZOLE") {
     bigWins = bigEyes >= 61;
+    pay = bigWins ? 10 : 12;
 
-    if (bigWins) {
-      if (bigTricks === 8) pay = 7;
-      else if (bigEyes >= 91) pay = 6;
-      else pay = 5;
-    } else {
-      if (bigTricks === 0) pay = 8;
-      else if (bigEyes < 31) pay = 7;
-      else pay = 6;
-    }
-
-    note = `ZOLE: bigEyes=${bigEyes}, talonEyes=${talonEyes}, pay=${pay}, ${bigWins ? "WIN" : "LOSE"}`;
+    note = `ZOLE: bigEyes=${bigEyes}, oppEyes=${oppEyes}, talonEyes=${talonEyes}, bigTricks=${bigTricks}, pay=${pay}, ${bigWins ? "WIN" : "LOSE"}`;
   }
 
   applyPayout(room, bigSeat, pay, bigWins);
@@ -499,19 +499,22 @@ function scoreStandardHand(room) {
   endToLobby(room, "BACK_TO_LOBBY");
 }
 
-/* ===== Score: MAZĀ ZOLE ===== */
+/* ===== Score: MAZĀ ZOLE (pēc tavas tabulas) =====
+   - Uzvara (0 stiķi): pay=12
+   - Zaudējums (>=1 stiķis): pay=14
+*/
 function scoreMazaZole(room, reason) {
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
 
   const bigWins = bigTricks === 0;
-  const pay = bigWins ? 6 : 7;
+  const pay = bigWins ? 12 : 14;
 
   applyPayout(room, bigSeat, pay, bigWins);
 
   room.phase = "SCORE";
   emitRoom(room, {
-    note: `MAZA: bigTricks=${bigTricks}, ${bigWins ? "WIN" : "LOSE"} (${reason || "END"})`,
+    note: `MAZA: bigTricks=${bigTricks}, ${bigWins ? "WIN" : "LOSE"} (${reason || "END"}) pay=${pay}`,
     scoring: { contract: "MAZA", bigSeat, bigTricks, pay, bigWins, reason: reason || "END" }
   });
 
