@@ -98,7 +98,7 @@ function isTrumpStd(c) {
   return c.s === "D" || c.r === "Q" || c.r === "J";
 }
 
-// Trumpju secība (VALIDĀCIJAI)
+// Trumpju secība (VALIDĀCIJAI) — UI nerādām, bet serverim vajag pareizu salīdzināšanu
 const TRUMP_ORDER = [
   { r: "Q", s: "C" },
   { r: "Q", s: "S" },
@@ -673,6 +673,21 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
+  // PALĪG: seat izvēle bez “spokiem”
+  function pickSeat(room, username) {
+    // 1) ja šis username jau ir istabā, bet atvienots -> atgriežam tieši viņa seat
+    let seat = room.players.findIndex((p) => p.username === username && !p.connected);
+    if (seat !== -1) return seat;
+
+    // 2) ja username jau ir istabā un pieslēgts -> aizliedzam dublikātu (lai nebūtu 2 BugatsLV)
+    const dup = room.players.find((p) => p.username === username && p.connected);
+    if (dup) return -2;
+
+    // 3) citādi ņemam pirmo brīvo seat
+    seat = room.players.findIndex((p) => !p.username);
+    return seat; // var būt -1, ja pilns
+  }
+
   socket.on("room:create", (payload, ack) => {
     try {
       const username = safeUsername(payload?.username);
@@ -684,8 +699,8 @@ io.on("connection", (socket) => {
       const roomId = normRoomId(payload?.roomId) || randomRoomId();
       const room = getOrCreateRoom(roomId);
 
-      let seat = room.players.findIndex((p) => !p.username);
-      if (seat === -1) seat = room.players.findIndex((p) => p.username === username && !p.connected);
+      const seat = pickSeat(room, username);
+      if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
       room.players[seat].username = username;
@@ -721,8 +736,8 @@ io.on("connection", (socket) => {
       const room = rooms.get(roomId);
       if (!room) return ack?.({ ok: false, error: "ROOM_NOT_FOUND" });
 
-      let seat = room.players.findIndex((p) => !p.username);
-      if (seat === -1) seat = room.players.findIndex((p) => p.username === username && !p.connected);
+      const seat = pickSeat(room, username);
+      if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
       room.players[seat].username = username;
@@ -820,7 +835,7 @@ io.on("connection", (socket) => {
     }
 
     let bidRaw = String(payload?.bid || "").toUpperCase().trim();
-    if (bidRaw === "MAZA_ZOLE" || bidRaw === "MAZA ZOLE" || bidRaw === "SMALL") bidRaw = "MAZA";
+    if (bidRaw === "MAZA_ZOLE" || bidRaw === "MAZA ZOLE" || bidRaw === "MAZĀ" || bidRaw === "MAZĀ ZOLE") bidRaw = "MAZA";
 
     const allowed = new Set(["PASS", "TAKE", "ZOLE", "MAZA"]);
     if (!allowed.has(bidRaw)) return ack?.({ ok: false, error: "BAD_BID" });
