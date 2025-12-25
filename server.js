@@ -465,7 +465,7 @@ function normRoomId(roomId) {
 function randomRoomId() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let s = "";
-  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 4; i++) s += chars[crypto.randomInt(0, chars.length)];
   return s;
 }
 
