@@ -1,17 +1,18 @@
 /* ============================
    THEZONE.LV — ZOLE (BEZ PULĒM) — PILNĀ LOĢIKA (LV nosaukumi)
    - 3 spēlētāji, 26 kārtis
-   - READY lobby → NEW_HAND → BIDDING → (ŅEMT GALDU: DISCARD2) → PLAY 8 stiķi → LOBBY
+   - LOBBY → BIDDING → (ŅEMT GALDU: DISCARD2) → PLAY 8 stiķi → LOBBY
    - Solīšana: GARĀM / ŅEMT GALDU / ZOLE / MAZĀ
    - ŅEMT GALDU: paņem talonu + NOROK 2 (tikai Lielais)
-   - ZOLE: bez talona (talons “paliek mazajiem” caur oppEyes = 120 - bigEyes)
+   - ZOLE: bez talona
    - MAZĀ: bez talona, BEZ TRUMPJIEM, mērķis 0 stiķi (tūlītējs zaudējums, ja paņem 1 stiķi)
    - Visi GARĀM: GALDS (primāri stiķi, ja vienādi -> acis; ja arī vienādi -> dalīts)
    - Commit–reveal fairness (serverCommit + 3 client seed → deterministisks shuffle)
    - Seat “spoku” FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
-   - FIX: KĀRTIS IZDALĀS UZREIZ pie NEW_HAND (pēc READY)
-   - FIX: ROTĀCIJA PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW): next = (seat+2)%3
+   - KĀRTIS IZDALĀS UZREIZ pie NEW_HAND (kad ir seeds)
+   - ROTĀCIJA PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW): next = (seat+2)%3
    + LOBBY ROOMS LIST (caurspīdīgas istabas + brīvās vietas)
+   + AUTO-START / AUTO-NEXT HAND: spēle turpinās bez READY spiešanas
    ============================ */
 
 const express = require("express");
@@ -21,6 +22,15 @@ const cors = require("cors");
 const crypto = require("crypto");
 
 const PORT = process.env.PORT || 10080;
+
+/* ============================
+   AUTO-START (bez READY)
+   - Kad istabā ir 3/3, visi online un “ready” (auto-true), startē pēc pauzes
+   ============================ */
+const AUTO_START_MS = Math.max(
+  250,
+  Math.min(15000, parseInt(process.env.AUTO_START_MS || "1200", 10) || 1200)
+);
 
 // “Galda/Galdiņa” pamata likme (uz vieninieku = 1)
 const GALDS_PAY = Math.max(
@@ -296,6 +306,51 @@ function safeAvatarUrl(u) {
 }
 
 /* ============================
+   AUTO-START helperi
+   ============================ */
+function roomAllConnected(room) {
+  return room.players.every((p) => !!p.username && !!p.connected);
+}
+function roomAllSeeded(room) {
+  return room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0);
+}
+function clearAutoStart(room) {
+  if (room.autoTimer) {
+    clearTimeout(room.autoTimer);
+    room.autoTimer = null;
+  }
+}
+function scheduleAutoStart(room, reason) {
+  clearAutoStart(room);
+
+  // startējam tikai LOBBY fāzē
+  if (room.phase !== "LOBBY") return;
+
+  // jābūt pilnai istabai un visiem online
+  if (!roomHasAllPlayers(room)) return;
+  if (!roomAllConnected(room)) return;
+
+  // “bez READY spiešanas”: mēs READY uzliekam automātiski,
+  // bet ja kāds tomēr explicit uzliek ready=false, tas var pauzēt auto-start
+  if (!roomAllReady(room)) return;
+
+  // seeds parasti ir uzreiz no app.js; ja nav, nepiespiedīsim startu
+  if (!roomAllSeeded(room)) return;
+
+  room.autoTimer = setTimeout(() => {
+    room.autoTimer = null;
+
+    if (room.phase !== "LOBBY") return;
+    if (!roomHasAllPlayers(room)) return;
+    if (!roomAllConnected(room)) return;
+    if (!roomAllReady(room)) return;
+    if (!roomAllSeeded(room)) return;
+
+    startNewHand(room);
+  }, AUTO_START_MS);
+}
+
+/* ============================
    LOBBY ROOMS LIST (PUBLIKĀ INFORMĀCIJA)
    - nekad nerādām: hands, seeds, talonu, deck, discard utt.
    ============================ */
@@ -324,8 +379,7 @@ function getRoomSummary(room) {
     playerCount: occupiedSeats,
 
     // detalizēti
-    openSeats, // piem. [1,2] => brīvas 2 vietas
-
+    openSeats,
     players: seats.map((seat) => {
       const p = occ.get(seat);
       if (!p) return { seat, empty: true };
@@ -348,14 +402,10 @@ function listPublicRooms() {
   for (const room of rooms.values()) {
     if (!room) continue;
     const cnt = (room.players || []).filter((p) => p && p.username).length;
-
-    // “atvērta istaba” = vismaz 1 spēlētājs (nevis tukšs ieraksts mapā)
     if (cnt <= 0) continue;
-
     out.push(getRoomSummary(room));
   }
 
-  // kārtošana: vispirms ar brīvām vietām, tad pēc ID
   out.sort((a, b) => {
     const aOpen = a.openSeatsCount ?? (a.openSeats?.length || 0);
     const bOpen = b.openSeatsCount ?? (b.openSeats?.length || 0);
@@ -371,7 +421,6 @@ function broadcastRoomsUpdate() {
   io.to("lobby").emit("rooms:update", payload);
 }
 
-// HTTP “pull”
 app.get("/rooms", (_req, res) => {
   res.json({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
 });
@@ -380,6 +429,10 @@ function newRoom(roomId) {
   return {
     roomId,
     phase: "LOBBY",
+
+    // AUTO-START timer
+    autoTimer: null,
+
     players: [
       { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: 0 },
       { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: 0 },
@@ -394,8 +447,8 @@ function newRoom(roomId) {
     bids: [],
     bidTurnSeat: 0,
 
-    contract: null,   // ŅEMT GALDU / ZOLE / MAZĀ / GALDS
-    bigSeat: null,    // ŅEMT GALDU/ZOLE/MAZĀ gadījumā
+    contract: null,
+    bigSeat: null,
 
     deck: null,
     hands: [[], [], []],
@@ -407,14 +460,10 @@ function newRoom(roomId) {
     turnSeat: null,
     trickPlays: [],
 
-    // GALDS (talons 1./2. stiķim)
     galdsTrickNo: 0,
     galdsTalonIndex: 0,
 
-    // pēdējais rezultāts (lai UI var parādīt toast + scoreLast)
     lastResult: null,
-
-    // lobby list timestamp
     updatedAt: Date.now()
   };
 }
@@ -428,7 +477,6 @@ function getOrCreateRoom(roomId) {
 function roomHasAllPlayers(room) {
   return room.players.every((p) => !!p.username);
 }
-
 function roomAllReady(room) {
   return room.players.every((p) => !!p.username && p.ready);
 }
@@ -484,6 +532,8 @@ function dealIfReady(room) {
 }
 
 function startNewHand(room) {
+  clearAutoStart(room);
+
   room.handNo += 1;
   room.phase = "BIDDING";
   resetHandState(room);
@@ -505,7 +555,6 @@ function preparePlayPhase(room) {
 }
 
 function applyPayEachSigned(room, bigSeat, payEachSigned) {
-  // payEachSigned: +2 => lielais saņem +2 no katra; -2 => lielais maksā -2 katram
   room.players[bigSeat].matchPts += payEachSigned * 2;
   for (const p of room.players) if (p.seat !== bigSeat) p.matchPts -= payEachSigned;
 }
@@ -514,7 +563,11 @@ function finishHandToLobby(room, lastResult, extraNote) {
   room.lastResult = lastResult || null;
 
   room.phase = "LOBBY";
-  for (const p of room.players) p.ready = false;
+
+  // BEZ READY spiešanas: pēc partijas paliek “gatavi”
+  for (const p of room.players) {
+    if (p.username) p.ready = true;
+  }
 
   room.dealerSeat = nextSeatCW(room.dealerSeat);
   resetHandState(room);
@@ -523,11 +576,10 @@ function finishHandToLobby(room, lastResult, extraNote) {
 }
 
 /* ============================
-   SCORE — ŅEMT GALDU / ZOLE (pēc tavas tabulas)
-   payEachSigned vienmēr ir “cik Lielais saņem no katra Mazā”
+   SCORE — ŅEMT GALDU / ZOLE
    ============================ */
 function scoreTakeOrZole(room) {
-  const contract = room.contract; // ŅEMT GALDU / ZOLE
+  const contract = room.contract;
   const bigSeat = room.bigSeat;
 
   const totalEyes = 120;
@@ -548,51 +600,49 @@ function scoreTakeOrZole(room) {
   let bigWins = false;
   let status = "";
 
-  // ŅEMT GALDU (Parastā spēle)
   if (contract === CONTRACT_TAKE) {
-    bigWins = bigEyes >= 61; // 60 = zaudējums
+    bigWins = bigEyes >= 61;
 
     if (bigWins) {
       if (bigTricks === 8) {
-        payEachSigned = +3; // L +6, katrs M -3
+        payEachSigned = +3;
         status = "UZVAR BEZTUKŠĀ";
       } else if (bigEyes >= 91) {
-        payEachSigned = +2; // L +4, katrs M -2
+        payEachSigned = +2;
         status = "UZVAR JAŅOS";
       } else {
-        payEachSigned = +1; // L +2, katrs M -1
+        payEachSigned = +1;
         status = "UZVAR";
       }
     } else {
       if (bigTricks === 0) {
-        payEachSigned = -4; // L -8, katrs M +4
+        payEachSigned = -4;
         status = "ZAUDĒ BEZTUKŠĀ";
       } else if (bigEyes <= 30) {
-        payEachSigned = -3; // L -6, katrs M +3
+        payEachSigned = -3;
         status = "ZAUDĒ JAŅOS";
       } else {
-        payEachSigned = -2; // L -4, katrs M +2
+        payEachSigned = -2;
         status = "ZAUDĒ";
       }
     }
   }
 
-  // ZOLE
   if (contract === CONTRACT_ZOLE) {
     bigWins = bigEyes >= 61;
 
     if (!bigWins) {
-      payEachSigned = -6; // L -12, katrs M +6
+      payEachSigned = -6;
       status = "ZAUDĒ";
     } else {
       if (bigTricks === 8) {
-        payEachSigned = +7; // L +14, katrs M -7
+        payEachSigned = +7;
         status = "UZVAR BEZTUKŠĀ";
       } else if (bigEyes >= 91) {
-        payEachSigned = +6; // L +12, katrs M -6
+        payEachSigned = +6;
         status = "UZVAR JAŅOS";
       } else {
-        payEachSigned = +5; // L +10, katrs M -5
+        payEachSigned = +5;
         status = "UZVAR";
       }
     }
@@ -607,7 +657,7 @@ function scoreTakeOrZole(room) {
     bigSeat,
     bigWins,
     status,
-    payEach: payEachSigned, // signed (per-mazais)
+    payEach: payEachSigned,
     bigEyes,
     oppEyes,
     bigTricks,
@@ -621,15 +671,14 @@ function scoreTakeOrZole(room) {
 }
 
 /* ============================
-   SCORE — MAZĀ (pēc tavas tabulas)
-   +12 ja 0 stiķi, citādi -12
+   SCORE — MAZĀ
    ============================ */
 function scoreMaza(room, reason) {
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
   const bigWins = bigTricks === 0;
 
-  const payEachSigned = bigWins ? +6 : -6; // L +12/-12
+  const payEachSigned = bigWins ? +6 : -6;
   const status = bigWins ? "UZVAR" : "ZAUDĒ";
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
@@ -651,13 +700,7 @@ function scoreMaza(room, reason) {
 }
 
 /* ============================
-   SCORE — GALDS (visi GARĀM)
-   primāri: visvairāk stiķu zaudē
-   ja 2 vienādi max stiķi -> tie-break acis
-   ja arī acis vienādi -> abi “dalīti” maksā
-   Punkti (bāze = GALDS_PAY):
-   - 1 zaudētājs: viņš -2*base, pārējie +base
-   - 2 zaudētāji: abi -base, trešais +2*base
+   SCORE — GALDS
    ============================ */
 function scoreGalds(room) {
   const tricks = room.taken.map((t) => trickCount(t));
@@ -666,7 +709,6 @@ function scoreGalds(room) {
   const maxTr = Math.max(...tricks);
   let losers = [0, 1, 2].filter((s) => tricks[s] === maxTr);
 
-  // tie-break pēc acīm
   if (losers.length > 1) {
     const maxEyesAmong = Math.max(...losers.map((s) => eyes[s]));
     losers = losers.filter((s) => eyes[s] === maxEyesAmong);
@@ -806,8 +848,10 @@ function emitRoom(room, extra) {
     s.emit("room:state", sanitizeStateForSeat(room, p.seat), extra || null);
   }
 
-  // Lobby rooms list vienmēr sinhronā
   broadcastRoomsUpdate();
+
+  // AUTO-NEXT HAND (bez READY spiešanas)
+  scheduleAutoStart(room, "emitRoom");
 }
 
 /* ============================
@@ -816,34 +860,23 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
-  // Lobby subscribe
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
-    try {
-      ack?.({ ok: true });
-    } catch {}
-
-    // uzreiz iedodam sarakstu
-    try {
-      socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() });
-    } catch {}
+    try { ack?.({ ok: true }); } catch {}
+    try { socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() }); } catch {}
   });
 
-  // Pull variants caur socket
   socket.on("room:list", (_payload, ack) => {
     ack?.({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
   });
 
   function pickSeat(room, username) {
-    // 1) atgriež seat pēc username, ja tas bija atvienots
     let seat = room.players.findIndex((p) => p.username === username && !p.connected);
     if (seat !== -1) return seat;
 
-    // 2) aizliedz dublikātu nick, ja tas jau pieslēgts
     const dup = room.players.find((p) => p.username === username && p.connected);
     if (dup) return -2;
 
-    // 3) ņem brīvu seat
     seat = room.players.findIndex((p) => !p.username);
     return seat;
   }
@@ -865,7 +898,10 @@ io.on("connection", (socket) => {
 
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
-      room.players[seat].ready = false;
+
+      // BEZ READY spiešanas: auto-ready
+      room.players[seat].ready = true;
+
       room.players[seat].connected = true;
       room.players[seat].socketId = socket.id;
 
@@ -902,7 +938,10 @@ io.on("connection", (socket) => {
 
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
-      room.players[seat].ready = false;
+
+      // BEZ READY spiešanas: auto-ready
+      room.players[seat].ready = true;
+
       room.players[seat].connected = true;
       room.players[seat].socketId = socket.id;
 
@@ -926,6 +965,8 @@ io.on("connection", (socket) => {
     const room = roomId ? rooms.get(roomId) : null;
 
     if (room && typeof seat === "number") {
+      clearAutoStart(room);
+
       const keepPts = room.players[seat].matchPts;
       room.players[seat] = {
         seat,
@@ -952,7 +993,6 @@ io.on("connection", (socket) => {
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return;
 
-    // lock seed pēc izdalīšanas (fairness)
     if (room.deck && room.deck.length) return;
 
     const seed = String(seedRaw || "").trim().slice(0, 64);
@@ -960,7 +1000,6 @@ io.on("connection", (socket) => {
 
     room.players[seat].seed = seed;
 
-    // ja hand jau ir sācies un vēl nav izdalīts, izdalām tiklīdz pēdējais seed atnāk
     if (room.phase === "BIDDING" && room.fairness && !room.deck) {
       const did = dealIfReady(room);
       emitRoom(room, { note: did ? "AUTO_DEAL_OK" : "SEED" });
@@ -972,6 +1011,7 @@ io.on("connection", (socket) => {
   socket.on("fair:seed", setSeed);
   socket.on("seed", setSeed);
 
+  // Atstājam savietojamībai: ja kāds tomēr grib pauzēt, var uzlikt ready=false
   socket.on("zole:ready", (payload, ack) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
@@ -982,12 +1022,7 @@ io.on("connection", (socket) => {
     room.players[seat].ready = ready;
 
     ack?.({ ok: true, ready });
-
-    if (room.phase === "LOBBY" && roomHasAllPlayers(room) && roomAllReady(room)) {
-      startNewHand(room);
-    } else {
-      emitRoom(room, { note: "READY" });
-    }
+    emitRoom(room, { note: "READY" });
   });
 
   socket.on("zole:bid", (payload, ack) => {
@@ -999,7 +1034,6 @@ io.on("connection", (socket) => {
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
 
-    // drošībai, ja nav izdalīts
     if (!room.deck) {
       const did = dealIfReady(room);
       if (!did) return ack?.({ ok: false, error: "WAIT_SEEDS" });
@@ -1008,11 +1042,9 @@ io.on("connection", (socket) => {
 
     let bidRaw = String(payload?.bid || "").toUpperCase().trim();
 
-    // pieņem arī vecos alias
     if (bidRaw === "PASS") bidRaw = "GARĀM";
     if (bidRaw === "TAKE") bidRaw = "ŅEMT GALDU";
 
-    // MAZĀ alias
     if (
       bidRaw === "MAZA_ZOLE" ||
       bidRaw === "MAZA ZOLE" ||
@@ -1050,7 +1082,6 @@ io.on("connection", (socket) => {
       return ack?.({ ok: true });
     }
 
-    // ŅEMT GALDU / ZOLE / MAZĀ beidz solīšanu uzreiz
     room.bigSeat = seat;
 
     if (bidRaw === "ŅEMT GALDU") {
@@ -1152,7 +1183,6 @@ io.on("connection", (socket) => {
     room.leaderSeat = winnerSeat;
     room.turnSeat = winnerSeat;
 
-    // GALDS: talona kārtis pieliek 1. un 2. stiķim (uzvarētājam)
     if (room.contract === CONTRACT_GALDS) {
       room.galdsTrickNo += 1;
       if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
@@ -1163,7 +1193,6 @@ io.on("connection", (socket) => {
 
     emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
 
-    // MAZĀ: ja lielais paņem 1 stiķi -> tūlītējs zaudējums
     if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
       return scoreMaza(room, "TOOK_TRICK");
     }
@@ -1184,9 +1213,14 @@ io.on("connection", (socket) => {
     const room = roomId ? rooms.get(roomId) : null;
 
     if (room && typeof seat === "number" && room.players[seat]) {
+      clearAutoStart(room);
+
       room.players[seat].connected = false;
       room.players[seat].socketId = null;
+
+      // ja atvienojas – auto-start nedrīkst ieskriet
       room.players[seat].ready = false;
+
       emitRoom(room, { note: "DISCONNECT" });
     }
   });
@@ -1214,6 +1248,7 @@ function normalizeCard(x) {
 
 server.listen(PORT, () => {
   console.log(`[zole] listening on :${PORT}`);
+  console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
   console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
   console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
 });
