@@ -32,6 +32,19 @@ const AUTO_START_MS = Math.max(
   Math.min(15000, parseInt(process.env.AUTO_START_MS || "1200", 10) || 1200)
 );
 
+/* ============================
+   AUTO-NEXT HAND (pēc rezultāta)
+   - lai uz telefona rezultāts/toast paspēj parādīties, bieži gribas ilgāku pauzi
+   - ja negribi – atstāj vienādu ar AUTO_START_MS vai uzliec env AUTO_NEXT_HAND_MS=1200
+   ============================ */
+const AUTO_NEXT_HAND_MS = Math.max(
+  250,
+  Math.min(
+    20000,
+    parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000
+  )
+);
+
 // “Galda/Galdiņa” pamata likme (uz vieninieku = 1)
 const GALDS_PAY = Math.max(
   1,
@@ -337,6 +350,14 @@ function scheduleAutoStart(room, reason) {
   // seeds parasti ir uzreiz no app.js; ja nav, nepiespiedīsim startu
   if (!roomAllSeeded(room)) return;
 
+  // ja finishHandToLobby uzlicis override (pēc rezultāta), izmantojam to vienreiz
+  const delayMs =
+    typeof room.autoDelayOverrideMs === "number" && room.autoDelayOverrideMs >= 0
+      ? room.autoDelayOverrideMs
+      : AUTO_START_MS;
+
+  room.autoDelayOverrideMs = null;
+
   room.autoTimer = setTimeout(() => {
     room.autoTimer = null;
 
@@ -347,7 +368,7 @@ function scheduleAutoStart(room, reason) {
     if (!roomAllSeeded(room)) return;
 
     startNewHand(room);
-  }, AUTO_START_MS);
+  }, delayMs);
 }
 
 /* ============================
@@ -432,6 +453,9 @@ function newRoom(roomId) {
 
     // AUTO-START timer
     autoTimer: null,
+
+    // vienreizējs override AUTO-NEXT gadījumam
+    autoDelayOverrideMs: null,
 
     players: [
       { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: 0 },
@@ -568,6 +592,9 @@ function finishHandToLobby(room, lastResult, extraNote) {
   for (const p of room.players) {
     if (p.username) p.ready = true;
   }
+
+  // pēc partijas dodam lielāku pauzi, lai uz telefona paspēj toast/animācijas
+  room.autoDelayOverrideMs = AUTO_NEXT_HAND_MS;
 
   room.dealerSeat = nextSeatCW(room.dealerSeat);
   resetHandState(room);
@@ -1249,6 +1276,7 @@ function normalizeCard(x) {
 server.listen(PORT, () => {
   console.log(`[zole] listening on :${PORT}`);
   console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
+  console.log(`[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
   console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
   console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
 });
