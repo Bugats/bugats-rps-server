@@ -14,6 +14,9 @@
    + LOBBY ROOMS LIST (caurspīdīgas istabas + brīvās vietas)
    + AUTO-START / AUTO-NEXT HAND: spēle turpinās bez READY spiešanas
    + START PTS: katram spēlētājam sākumā 1000 punkti (var vinnēt/zaudēt)
+   + GLOBAL TOP10 LEADERBOARD (failā data/zole_leaderboard.json)
+     - GET /leaderboard
+     - socket: leaderboard:top10 (pull) + leaderboard:update (push pēc SCORE)
 
    BASELINE scoring (Bugats tabula):
    - ŅEMT GALDU: +2 / +4 / +6 ; zaudējums -4 / -6 / -8
@@ -26,6 +29,8 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const PORT = process.env.PORT || 10080;
 
@@ -80,10 +85,152 @@ app.use(express.json({ limit: "256kb" }));
 app.get("/", (_req, res) => res.send("OK"));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+/* ============================
+   GLOBAL LEADERBOARD (TOP10)
+   - saglabājas failā (data/zole_leaderboard.json)
+   ============================ */
+const DATA_DIR = path.join(__dirname, "data");
+const LB_PATH = path.join(DATA_DIR, "zole_leaderboard.json");
+
+function ensureDir(p) {
+  try {
+    fs.mkdirSync(p, { recursive: true });
+  } catch {}
+}
+function readJson(file, fallback) {
+  try {
+    if (!fs.existsSync(file)) return fallback;
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(file, obj) {
+  try {
+    fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
+  } catch {}
+}
+
+ensureDir(DATA_DIR);
+
+let LB = readJson(LB_PATH, { players: {} });
+// LB.players[username] = { username, avatarUrl, pts, hands, updatedAt }
+
+function lbSave() {
+  writeJson(LB_PATH, LB);
+}
+
+function lbTouch(username, avatarUrl, initPtsIfNew) {
+  if (!username) return { player: null, changed: false };
+
+  const now = Date.now();
+  let changed = false;
+
+  let p = LB.players[username];
+  if (!p) {
+    p = {
+      username,
+      avatarUrl: avatarUrl || "",
+      pts:
+        typeof initPtsIfNew === "number" && Number.isFinite(initPtsIfNew)
+          ? initPtsIfNew
+          : START_PTS,
+      hands: 0,
+      updatedAt: now
+    };
+    LB.players[username] = p;
+    changed = true;
+  }
+
+  if (avatarUrl && avatarUrl !== p.avatarUrl) {
+    p.avatarUrl = avatarUrl;
+    changed = true;
+  }
+
+  if (typeof p.pts !== "number" || !Number.isFinite(p.pts)) {
+    p.pts = START_PTS;
+    changed = true;
+  }
+
+  if (typeof p.hands !== "number" || !Number.isFinite(p.hands)) {
+    p.hands = 0;
+    changed = true;
+  }
+
+  p.updatedAt = now;
+
+  return { player: p, changed };
+}
+
+function lbApplyDeltas(roomPlayers, deltasByUsername) {
+  let any = false;
+
+  for (const rp of roomPlayers || []) {
+    const u = rp?.username;
+    if (!u) continue;
+
+    const { player, changed } = lbTouch(u, rp.avatarUrl, rp.matchPts);
+    if (!player) continue;
+
+    const d = Number(deltasByUsername?.[u] ?? 0) || 0;
+    if (d !== 0) {
+      player.pts = Number(player.pts || 0) + d;
+      player.hands = Number(player.hands || 0) + 1;
+      player.updatedAt = Date.now();
+      any = true;
+    } else if (changed) {
+      any = true; // piem., avatārs jauns vai jauns spēlētājs
+    }
+  }
+
+  if (any) lbSave();
+}
+
+function lbTop10() {
+  const arr = Object.values(LB.players || {});
+  arr.sort(
+    (a, b) =>
+      (Number(b.pts || 0) - Number(a.pts || 0)) ||
+      (Number(b.hands || 0) - Number(a.hands || 0)) ||
+      String(a.username || "").localeCompare(String(b.username || ""))
+  );
+  return arr.slice(0, 10);
+}
+
+app.get("/leaderboard", (_req, res) => {
+  res.json({ ok: true, top: lbTop10(), ts: Date.now() });
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: corsOptions.origin, credentials: true }
 });
+
+function broadcastLeaderboardUpdate() {
+  try {
+    io.emit("leaderboard:update", { top: lbTop10(), ts: Date.now() });
+  } catch {}
+}
+
+function snapshotSeatPts(room) {
+  return (room.players || []).map((p) => ({
+    username: p?.username || null,
+    pts: typeof p?.matchPts === "number" ? p.matchPts : START_PTS
+  }));
+}
+
+function deltaMapFromSnapshot(room, snap) {
+  const map = Object.create(null);
+  for (let i = 0; i < (room.players || []).length; i++) {
+    const p = room.players[i];
+    const u = p?.username;
+    if (!u) continue;
+    const before = typeof snap?.[i]?.pts === "number" ? snap[i].pts : START_PTS;
+    const after = typeof p.matchPts === "number" ? p.matchPts : before;
+    map[u] = (map[u] || 0) + (after - before);
+  }
+  return map;
+}
 
 /* ============================
    SEAT ROTĀCIJA (CW)
@@ -127,7 +274,8 @@ function buildDeck() {
   for (const s of ["C", "S", "H"]) {
     for (const r of base) deck.push({ r, s });
   }
-  for (const r of ["A", "K", "Q", "J", "10", "9", "8", "7"]) deck.push({ r, s: "D" });
+  for (const r of ["A", "K", "Q", "J", "10", "9", "8", "7"])
+    deck.push({ r, s: "D" });
   return deck;
 }
 
@@ -492,9 +640,36 @@ function newRoom(roomId) {
     userPtsOrder: [],
 
     players: [
-      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
-      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
-      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS }
+      {
+        seat: 0,
+        username: null,
+        avatarUrl: "",
+        ready: false,
+        connected: false,
+        socketId: null,
+        seed: null,
+        matchPts: START_PTS
+      },
+      {
+        seat: 1,
+        username: null,
+        avatarUrl: "",
+        ready: false,
+        connected: false,
+        socketId: null,
+        seed: null,
+        matchPts: START_PTS
+      },
+      {
+        seat: 2,
+        username: null,
+        avatarUrl: "",
+        ready: false,
+        connected: false,
+        socketId: null,
+        seed: null,
+        matchPts: START_PTS
+      }
     ],
 
     dealerSeat: 0,
@@ -557,7 +732,8 @@ function resetHandState(room) {
 
 function dealIfReady(room) {
   if (!roomHasAllPlayers(room)) return false;
-  if (!room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0)) return false;
+  if (!room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0))
+    return false;
 
   const serverSecret = room.fairness?.serverSecret;
   const serverCommit = room.fairness?.serverCommit;
@@ -591,7 +767,12 @@ function startNewHand(room) {
 
   const serverSecret = crypto.randomBytes(16).toString("hex");
   const serverCommit = sha256hex(serverSecret);
-  room.fairness = { serverCommit, serverSecret, serverReveal: null, combinedHash: null };
+  room.fairness = {
+    serverCommit,
+    serverSecret,
+    serverReveal: null,
+    combinedHash: null
+  };
 
   room.turnSeat = room.bidTurnSeat;
 
@@ -632,6 +813,8 @@ function finishHandToLobby(room, lastResult, extraNote) {
    SCORE — ŅEMT GALDU / ZOLE  (Bugats tabula)
    ============================ */
 function scoreTakeOrZole(room) {
+  const snap = snapshotSeatPts(room);
+
   const contract = room.contract;
   const bigSeat = room.bigSeat;
 
@@ -703,6 +886,11 @@ function scoreTakeOrZole(room) {
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 
+  // leaderboard update (delta pēc šīs partijas)
+  const deltas = deltaMapFromSnapshot(room, snap);
+  lbApplyDeltas(room.players, deltas);
+  broadcastLeaderboardUpdate();
+
   const names = room.players.map((p) => p.username || null);
   const res = {
     ts: Date.now(),
@@ -728,6 +916,8 @@ function scoreTakeOrZole(room) {
    SCORE — MAZĀ  (Bugats tabula)
    ============================ */
 function scoreMaza(room, reason) {
+  const snap = snapshotSeatPts(room);
+
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
   const bigWins = bigTricks === 0;
@@ -736,6 +926,11 @@ function scoreMaza(room, reason) {
   const status = bigWins ? "UZVAR" : "ZAUDĒ";
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
+
+  // leaderboard update
+  const deltas = deltaMapFromSnapshot(room, snap);
+  lbApplyDeltas(room.players, deltas);
+  broadcastLeaderboardUpdate();
 
   const names = room.players.map((p) => p.username || null);
   const res = {
@@ -793,6 +988,16 @@ function scoreGalds(room) {
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
   syncAllUserPts(room);
+
+  // leaderboard update
+  const deltaByUsername = Object.create(null);
+  for (let s = 0; s < 3; s++) {
+    const u = room.players[s]?.username;
+    if (!u) continue;
+    deltaByUsername[u] = (deltaByUsername[u] || 0) + (Number(deltas[s]) || 0);
+  }
+  lbApplyDeltas(room.players, deltaByUsername);
+  broadcastLeaderboardUpdate();
 
   const winnerSeat = deltas.indexOf(Math.max(...deltas));
   const names = room.players.map((p) => p.username || null);
@@ -918,12 +1123,27 @@ io.on("connection", (socket) => {
 
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
-    try { ack?.({ ok: true }); } catch {}
-    try { socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() }); } catch {}
+    try {
+      ack?.({ ok: true });
+    } catch {}
+    try {
+      socket.emit("rooms:update", {
+        ok: true,
+        rooms: listPublicRooms(),
+        ts: Date.now()
+      });
+    } catch {}
   });
 
   socket.on("room:list", (_payload, ack) => {
     ack?.({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
+  });
+
+  // Leaderboard pull (TOP10)
+  socket.on("leaderboard:top10", (cb) => {
+    try {
+      cb && cb({ ok: true, top: lbTop10(), ts: Date.now() });
+    } catch {}
   });
 
   function pickSeat(room, username) {
@@ -971,6 +1191,10 @@ io.on("connection", (socket) => {
 
       setUserPts(room, username, room.players[seat].matchPts);
 
+      // leaderboard: nodrošini ierakstu (ja jauns / atjauno avatāru)
+      const t = lbTouch(username, room.players[seat].avatarUrl, room.players[seat].matchPts);
+      if (t.changed) lbSave();
+
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
       socket.data.seat = seat;
@@ -1017,6 +1241,10 @@ io.on("connection", (socket) => {
         clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
 
       setUserPts(room, username, room.players[seat].matchPts);
+
+      // leaderboard: nodrošini ierakstu (ja jauns / atjauno avatāru)
+      const t = lbTouch(username, room.players[seat].avatarUrl, room.players[seat].matchPts);
+      if (t.changed) lbSave();
 
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
@@ -1087,7 +1315,8 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number")
+      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     const ready = !!payload?.ready;
     room.players[seat].ready = ready;
@@ -1100,7 +1329,8 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number")
+      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
@@ -1187,7 +1417,8 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number")
+      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "DISCARD") return ack?.({ ok: false, error: "NOT_DISCARD" });
     if (room.bigSeat !== seat) return ack?.({ ok: false, error: "NOT_BIG" });
@@ -1221,7 +1452,8 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number")
+      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "PLAY") return ack?.({ ok: false, error: "NOT_PLAY" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
@@ -1233,7 +1465,9 @@ io.on("connection", (socket) => {
     const idx = hand.findIndex((h) => sameCard(h, c));
     if (idx === -1) return ack?.({ ok: false, error: "NOT_IN_HAND" });
 
-    const follow = room.trickPlays.length ? leadFollow(room, room.trickPlays[0].card) : null;
+    const follow = room.trickPlays.length
+      ? leadFollow(room, room.trickPlays[0].card)
+      : null;
     if (!isLegalPlay(hand, follow, c, room)) return ack?.({ ok: false, error: "ILLEGAL" });
 
     const played = hand.splice(idx, 1)[0];
@@ -1271,7 +1505,8 @@ io.on("connection", (socket) => {
     const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
     if (!allHandsEmpty) return;
 
-    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
+    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE)
+      return scoreTakeOrZole(room);
     if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
     if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
 
@@ -1322,5 +1557,8 @@ server.listen(PORT, () => {
   console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
   console.log(`[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
   console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
-  console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
+  console.log(
+    `[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`
+  );
+  console.log(`[zole] LEADERBOARD: ${LB_PATH}`);
 });
