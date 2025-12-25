@@ -14,6 +14,11 @@
    + LOBBY ROOMS LIST (caurspīdīgas istabas + brīvās vietas)
    + AUTO-START / AUTO-NEXT HAND: spēle turpinās bez READY spiešanas
    + START PTS: katram spēlētājam sākumā 1000 punkti (var vinnēt/zaudēt)
+
+   BASELINE scoring (Bugats tabula):
+   - ŅEMT GALDU: +2 / +4 / +6 ; zaudējums -4 / -6 / -8
+   - ZOLE: +10 / +12 / +14 ; zaudējums -12
+   - MAZĀ: +12 ; zaudējums -12 (un tūlītējs zaudējums pie 1 stiķa)
    ============================ */
 
 const express = require("express");
@@ -337,7 +342,6 @@ function setUserPts(room, username, pts) {
   if (!room.userPts) room.userPts = Object.create(null);
   room.userPts[username] = pts;
 
-  // viegls limits, lai nesakrājas bezgalīgi (praktiski pietiek)
   if (!room.userPtsOrder) room.userPtsOrder = [];
   if (!room.userPtsOrder.includes(username)) room.userPtsOrder.push(username);
 
@@ -368,20 +372,19 @@ function clearAutoStart(room) {
     room.autoTimer = null;
   }
 }
-function scheduleAutoStart(room, reason) {
+function roomHasAllPlayers(room) {
+  return room.players.every((p) => !!p.username);
+}
+function roomAllReady(room) {
+  return room.players.every((p) => !!p.username && p.ready);
+}
+function scheduleAutoStart(room, _reason) {
   clearAutoStart(room);
 
-  // startējam tikai LOBBY fāzē
   if (room.phase !== "LOBBY") return;
-
-  // jābūt pilnai istabai un visiem online
   if (!roomHasAllPlayers(room)) return;
   if (!roomAllConnected(room)) return;
-
-  // ja kāds uzliek ready=false, var pauzēt auto-start
   if (!roomAllReady(room)) return;
-
-  // seeds parasti ir uzreiz no app.js; ja nav, nepiespiedīsim startu
   if (!roomAllSeeded(room)) return;
 
   const delayMs =
@@ -529,13 +532,6 @@ function getOrCreateRoom(roomId) {
   return rooms.get(id);
 }
 
-function roomHasAllPlayers(room) {
-  return room.players.every((p) => !!p.username);
-}
-function roomAllReady(room) {
-  return room.players.every((p) => !!p.username && p.ready);
-}
-
 function resetHandState(room) {
   room.fairness = null;
 
@@ -612,8 +608,6 @@ function preparePlayPhase(room) {
 function applyPayEachSigned(room, bigSeat, payEachSigned) {
   room.players[bigSeat].matchPts += payEachSigned * 2;
   for (const p of room.players) if (p.seat !== bigSeat) p.matchPts -= payEachSigned;
-
-  // sync punkti per username
   syncAllUserPts(room);
 }
 
@@ -626,7 +620,6 @@ function finishHandToLobby(room, lastResult, extraNote) {
     if (p.username) p.ready = true;
   }
 
-  // pēc partijas pauze (telefoniem)
   room.autoDelayOverrideMs = AUTO_NEXT_HAND_MS;
 
   room.dealerSeat = nextSeatCW(room.dealerSeat);
@@ -636,7 +629,7 @@ function finishHandToLobby(room, lastResult, extraNote) {
 }
 
 /* ============================
-   SCORE — ŅEMT GALDU / ZOLE
+   SCORE — ŅEMT GALDU / ZOLE  (Bugats tabula)
    ============================ */
 function scoreTakeOrZole(room) {
   const contract = room.contract;
@@ -665,24 +658,24 @@ function scoreTakeOrZole(room) {
 
     if (bigWins) {
       if (bigTricks === 8) {
-        payEachSigned = +3;
+        payEachSigned = +6;
         status = "UZVAR BEZTUKŠĀ";
       } else if (bigEyes >= 91) {
-        payEachSigned = +2;
+        payEachSigned = +4;
         status = "UZVAR JAŅOS";
       } else {
-        payEachSigned = +1;
+        payEachSigned = +2;
         status = "UZVAR";
       }
     } else {
       if (bigTricks === 0) {
-        payEachSigned = -4;
+        payEachSigned = -8;
         status = "ZAUDĒ BEZTUKŠĀ";
       } else if (bigEyes <= 30) {
-        payEachSigned = -3;
+        payEachSigned = -6;
         status = "ZAUDĒ JAŅOS";
       } else {
-        payEachSigned = -2;
+        payEachSigned = -4;
         status = "ZAUDĒ";
       }
     }
@@ -692,17 +685,17 @@ function scoreTakeOrZole(room) {
     bigWins = bigEyes >= 61;
 
     if (!bigWins) {
-      payEachSigned = -6;
+      payEachSigned = -12;
       status = "ZAUDĒ";
     } else {
       if (bigTricks === 8) {
-        payEachSigned = +7;
+        payEachSigned = +14;
         status = "UZVAR BEZTUKŠĀ";
       } else if (bigEyes >= 91) {
-        payEachSigned = +6;
+        payEachSigned = +12;
         status = "UZVAR JAŅOS";
       } else {
-        payEachSigned = +5;
+        payEachSigned = +10;
         status = "UZVAR";
       }
     }
@@ -713,6 +706,7 @@ function scoreTakeOrZole(room) {
   const names = room.players.map((p) => p.username || null);
   const res = {
     ts: Date.now(),
+    handNo: room.handNo,
     contract,
     bigSeat,
     bigWins,
@@ -731,14 +725,14 @@ function scoreTakeOrZole(room) {
 }
 
 /* ============================
-   SCORE — MAZĀ
+   SCORE — MAZĀ  (Bugats tabula)
    ============================ */
 function scoreMaza(room, reason) {
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
   const bigWins = bigTricks === 0;
 
-  const payEachSigned = bigWins ? +6 : -6;
+  const payEachSigned = bigWins ? +12 : -12;
   const status = bigWins ? "UZVAR" : "ZAUDĒ";
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
@@ -746,6 +740,7 @@ function scoreMaza(room, reason) {
   const names = room.players.map((p) => p.username || null);
   const res = {
     ts: Date.now(),
+    handNo: room.handNo,
     contract: CONTRACT_MAZA,
     bigSeat,
     bigWins,
@@ -797,8 +792,6 @@ function scoreGalds(room) {
   }
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
-
-  // sync punkti per username
   syncAllUserPts(room);
 
   const winnerSeat = deltas.indexOf(Math.max(...deltas));
@@ -806,6 +799,7 @@ function scoreGalds(room) {
 
   const res = {
     ts: Date.now(),
+    handNo: room.handNo,
     contract: CONTRACT_GALDS,
     tricks,
     eyes,
@@ -913,7 +907,6 @@ function emitRoom(room, extra) {
   }
 
   broadcastRoomsUpdate();
-
   scheduleAutoStart(room, "emitRoom");
 }
 
@@ -961,7 +954,6 @@ io.on("connection", (socket) => {
 
       const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
 
-      // ja tas ir jauns ienācējs (nevis reconnect), ieliekam viņa punktus no userPts vai START_PTS
       if (!wasRejoin) {
         room.players[seat].matchPts = getUserPts(room, username);
       }
@@ -977,7 +969,6 @@ io.on("connection", (socket) => {
       room.players[seat].seed =
         clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
 
-      // sync punkti per username
       setUserPts(room, username, room.players[seat].matchPts);
 
       socket.join(room.roomId);
@@ -1298,7 +1289,6 @@ io.on("connection", (socket) => {
       room.players[seat].connected = false;
       room.players[seat].socketId = null;
 
-      // ja atvienojas – auto-start nedrīkst ieskriet
       room.players[seat].ready = false;
 
       emitRoom(room, { note: "DISCONNECT" });
