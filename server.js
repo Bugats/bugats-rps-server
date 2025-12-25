@@ -31,6 +31,7 @@ const cors = require("cors");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { URL } = require("url");
 
 const PORT = process.env.PORT || 10080;
 
@@ -158,10 +159,13 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
   }
 
   p.updatedAt = now;
-
   return { player: p, changed };
 }
 
+/**
+ * IMPORTANT: “hands” skaitu palielinām arī tad, ja delta = 0 (piem., GALDS: all equal),
+ * citādi leaderboard “hands” statistika būs neprecīza.
+ */
 function lbApplyDeltas(roomPlayers, deltasByUsername) {
   let any = false;
 
@@ -173,13 +177,18 @@ function lbApplyDeltas(roomPlayers, deltasByUsername) {
     if (!player) continue;
 
     const d = Number(deltasByUsername?.[u] ?? 0) || 0;
+
+    // Viena partija nospēlēta (vienmēr)
+    player.hands = Number(player.hands || 0) + 1;
+    player.updatedAt = Date.now();
+    any = true;
+
+    // Punktu delta (ja ir)
     if (d !== 0) {
       player.pts = Number(player.pts || 0) + d;
-      player.hands = Number(player.hands || 0) + 1;
-      player.updatedAt = Date.now();
-      any = true;
     } else if (changed) {
-      any = true; // piem., avatārs jauns vai jauns spēlētājs
+      // piem., avatārs jauns vai jauns spēlētājs
+      any = true;
     }
   }
 
@@ -627,6 +636,11 @@ app.get("/rooms", (_req, res) => {
   res.json({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
 });
 
+function roomIsEmpty(room) {
+  const cnt = (room.players || []).filter((p) => p && p.username).length;
+  return cnt <= 0;
+}
+
 function newRoom(roomId) {
   return {
     roomId,
@@ -989,7 +1003,7 @@ function scoreGalds(room) {
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
   syncAllUserPts(room);
 
-  // leaderboard update
+  // leaderboard update (arī tad, ja deltas=0, hands jāskaita)
   const deltaByUsername = Object.create(null);
   for (let s = 0; s < 3; s++) {
     const u = room.players[s]?.username;
@@ -1147,12 +1161,15 @@ io.on("connection", (socket) => {
   });
 
   function pickSeat(room, username) {
+    // 1) “spoku” seat atgūšana: tas pats username, bet atvienots
     let seat = room.players.findIndex((p) => p.username === username && !p.connected);
     if (seat !== -1) return seat;
 
+    // 2) duplicēts nick (ja jau ir online)
     const dup = room.players.find((p) => p.username === username && p.connected);
     if (dup) return -2;
 
+    // 3) brīva vieta
     seat = room.players.findIndex((p) => !p.username);
     return seat;
   }
@@ -1172,7 +1189,8 @@ io.on("connection", (socket) => {
       if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
-      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+      const wasRejoin =
+        room.players[seat].username === username && !room.players[seat].connected;
 
       if (!wasRejoin) {
         room.players[seat].matchPts = getUserPts(room, username);
@@ -1180,14 +1198,15 @@ io.on("connection", (socket) => {
 
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
-
       room.players[seat].ready = true;
 
       room.players[seat].connected = true;
       room.players[seat].socketId = socket.id;
 
       room.players[seat].seed =
-        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+        clientSeed ||
+        room.players[seat].seed ||
+        crypto.randomBytes(8).toString("hex");
 
       setUserPts(room, username, room.players[seat].matchPts);
 
@@ -1223,7 +1242,8 @@ io.on("connection", (socket) => {
       if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
-      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+      const wasRejoin =
+        room.players[seat].username === username && !room.players[seat].connected;
 
       if (!wasRejoin) {
         room.players[seat].matchPts = getUserPts(room, username);
@@ -1231,14 +1251,15 @@ io.on("connection", (socket) => {
 
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
-
       room.players[seat].ready = true;
 
       room.players[seat].connected = true;
       room.players[seat].socketId = socket.id;
 
       room.players[seat].seed =
-        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+        clientSeed ||
+        room.players[seat].seed ||
+        crypto.randomBytes(8).toString("hex");
 
       setUserPts(room, username, room.players[seat].matchPts);
 
@@ -1268,6 +1289,9 @@ io.on("connection", (socket) => {
       const uname = room.players[seat].username;
       if (uname) setUserPts(room, uname, room.players[seat].matchPts);
 
+      // Ja kāds iziet spēles laikā → lai istaba neiesprūst, atgriežam uz LOBBY un reset hand
+      const leavingMidHand = room.phase !== "LOBBY";
+
       room.players[seat] = {
         seat,
         username: null,
@@ -1278,7 +1302,25 @@ io.on("connection", (socket) => {
         seed: null,
         matchPts: START_PTS
       };
-      emitRoom(room, { note: "LEAVE" });
+
+      if (leavingMidHand) {
+        room.lastResult = {
+          ts: Date.now(),
+          handNo: room.handNo,
+          contract: room.contract || null,
+          note: "ABORTED_PLAYER_LEFT"
+        };
+        room.phase = "LOBBY";
+        resetHandState(room);
+      }
+
+      // Ja istaba kļūst tukša → izdzēšam (pret memory leak)
+      if (roomIsEmpty(room)) {
+        rooms.delete(room.roomId);
+        broadcastRoomsUpdate();
+      } else {
+        emitRoom(room, { note: "LEAVE" });
+      }
     }
 
     socket.leave(roomId || "");
@@ -1524,6 +1566,7 @@ io.on("connection", (socket) => {
       room.players[seat].connected = false;
       room.players[seat].socketId = null;
 
+      // auto-start nedrīkst sākt, ja kāds nav online
       room.players[seat].ready = false;
 
       emitRoom(room, { note: "DISCONNECT" });
@@ -1550,6 +1593,20 @@ function normalizeCard(x) {
 
   return null;
 }
+
+// drošības: saglabā leaderboard uz exit
+process.on("SIGINT", () => {
+  try {
+    lbSave();
+  } catch {}
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  try {
+    lbSave();
+  } catch {}
+  process.exit(0);
+});
 
 server.listen(PORT, () => {
   console.log(`[zole] listening on :${PORT}`);
