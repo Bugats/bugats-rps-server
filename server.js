@@ -209,6 +209,233 @@ function lbTop10() {
 app.get("/leaderboard", (_req, res) => {
   res.json({ ok: true, top: lbTop10(), ts: Date.now() });
 });
+/* ============================
+   AUTH (signup/login) — lai strādā auth.html/auth.js
+   - POST /signup, /login (+ alias /api/* un /auth/*)
+   - glabājas data/zole_users.json
+   - token: HS256 (bez ārējām pakām)
+   ============================ */
+
+const USERS_PATH = path.join(DATA_DIR, "zole_users.json");
+let USERS = readJson(USERS_PATH, { users: {} });
+// USERS.users[username] = { username, pass, avatarUrl, createdAt, updatedAt }
+
+function usersSave() {
+  writeJson(USERS_PATH, USERS);
+}
+
+function safeUsernameAuth(u) {
+  return String(u || "").trim().slice(0, 18);
+}
+function safeAvatarUrlAuth(u) {
+  const s = String(u || "").trim().slice(0, 300);
+  if (!s) return "";
+  try {
+    const url = new URL(s);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function pwHash(password, saltHex) {
+  const salt = saltHex || crypto.randomBytes(16).toString("hex");
+  const dk = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256");
+  return `${salt}:${dk.toString("hex")}`;
+}
+
+function pwVerify(password, stored) {
+  try {
+    const [salt, hex] = String(stored || "").split(":");
+    if (!salt || !hex) return false;
+    const dk = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256");
+    const a = Buffer.from(hex, "hex");
+    const b = Buffer.from(dk.toString("hex"), "hex");
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function b64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(String(input), "utf8");
+  return buf
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function signToken(payload) {
+  const secret =
+    process.env.AUTH_SECRET ||
+    process.env.JWT_SECRET ||
+    "ZOLE_AUTH_SECRET_CHANGE_ME";
+
+  const header = { alg: "HS256", typ: "JWT" };
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + 60 * 60 * 24 * 30; // 30 dienas
+
+  const body = { ...payload, iat: now, exp };
+  const base = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(body))}`;
+
+  const sig = crypto
+    .createHmac("sha256", secret)
+    .update(base)
+    .digest("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+
+  return `${base}.${sig}`;
+}
+
+function verifyToken(token) {
+  try {
+    const secret =
+      process.env.AUTH_SECRET ||
+      process.env.JWT_SECRET ||
+      "ZOLE_AUTH_SECRET_CHANGE_ME";
+
+    const t = String(token || "");
+    const parts = t.split(".");
+    if (parts.length !== 3) return { ok: false };
+
+    const [h, p, s] = parts;
+    const base = `${h}.${p}`;
+    const sig = crypto
+      .createHmac("sha256", secret)
+      .update(base)
+      .digest("base64")
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+
+    if (sig !== s) return { ok: false };
+
+    const json = Buffer.from(p.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const payload = JSON.parse(json);
+
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && now > payload.exp) return { ok: false, error: "TOKEN_EXPIRED" };
+
+    return { ok: true, payload };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function normalizeUserKey(username) {
+  // ja gribi case-insensitive, tad: return String(username||"").trim().toLowerCase();
+  return String(username || "").trim();
+}
+
+function userGet(username) {
+  const key = normalizeUserKey(username);
+  return USERS.users[key] || null;
+}
+
+function userSet(u) {
+  const key = normalizeUserKey(u.username);
+  USERS.users[key] = u;
+  usersSave();
+}
+
+function authResponse(res, user) {
+  const token = signToken({ username: user.username, avatarUrl: user.avatarUrl || "" });
+  return res.json({
+    ok: true,
+    token,
+    user: { username: user.username, avatarUrl: user.avatarUrl || "" },
+    ts: Date.now()
+  });
+}
+
+const SIGNUP_ROUTES = [
+  "/signup",
+  "/api/signup",
+  "/auth/signup",
+  "/api/auth/signup",
+  "/register",
+  "/api/register",
+  "/auth/register",
+  "/api/auth/register"
+];
+
+const LOGIN_ROUTES = [
+  "/login",
+  "/api/login",
+  "/auth/login",
+  "/api/auth/login",
+  "/signin",
+  "/api/signin",
+  "/auth/signin",
+  "/api/auth/signin"
+];
+
+app.post(SIGNUP_ROUTES, (req, res) => {
+  const username = safeUsernameAuth(req.body?.username);
+  const password = String(req.body?.password || "");
+  const avatarUrl = safeAvatarUrlAuth(req.body?.avatarUrl);
+
+  if (!username) return res.status(400).json({ ok: false, error: "NICK_REQUIRED" });
+  if (password.length < 4) return res.status(400).json({ ok: false, error: "PASS_TOO_SHORT" });
+
+  const existing = userGet(username);
+  if (existing) return res.status(409).json({ ok: false, error: "USER_EXISTS" });
+
+  const user = {
+    username,
+    pass: pwHash(password),
+    avatarUrl: avatarUrl || "",
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  userSet(user);
+
+  // leaderboard: nodrošini ierakstu (ja nav)
+  const t = lbTouch(username, user.avatarUrl, START_PTS);
+  if (t.changed) lbSave();
+
+  return authResponse(res, user);
+});
+
+app.post(LOGIN_ROUTES, (req, res) => {
+  const username = safeUsernameAuth(req.body?.username);
+  const password = String(req.body?.password || "");
+
+  if (!username) return res.status(400).json({ ok: false, error: "NICK_REQUIRED" });
+
+  const u = userGet(username);
+  if (!u) return res.status(401).json({ ok: false, error: "BAD_LOGIN" });
+
+  if (!pwVerify(password, u.pass)) {
+    return res.status(401).json({ ok: false, error: "BAD_LOGIN" });
+  }
+
+  // ja atnāk avatarUrl loginā, atjaunojam (un arī leaderboard)
+  const avatarUrl = safeAvatarUrlAuth(req.body?.avatarUrl);
+  if (avatarUrl && avatarUrl !== (u.avatarUrl || "")) {
+    u.avatarUrl = avatarUrl;
+    u.updatedAt = Date.now();
+    userSet(u);
+
+    const t = lbTouch(username, u.avatarUrl, START_PTS);
+    if (t.changed) lbSave();
+  }
+
+  return authResponse(res, u);
+});
+
+// (noder debugam) /me
+app.get(["/me", "/auth/me", "/api/me", "/api/auth/me"], (req, res) => {
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  const v = verifyToken(token);
+  if (!v.ok) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  return res.json({ ok: true, user: v.payload, ts: Date.now() });
+});
 
 const server = http.createServer(app);
 const io = new Server(server, {
