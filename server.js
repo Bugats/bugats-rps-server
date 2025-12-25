@@ -13,6 +13,7 @@
    - ROTĀCIJA PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW): next = (seat+2)%3
    + LOBBY ROOMS LIST (caurspīdīgas istabas + brīvās vietas)
    + AUTO-START / AUTO-NEXT HAND: spēle turpinās bez READY spiešanas
+   + START PTS: katram spēlētājam sākumā 1000 punkti (var vinnēt/zaudēt)
    ============================ */
 
 const express = require("express");
@@ -22,6 +23,14 @@ const cors = require("cors");
 const crypto = require("crypto");
 
 const PORT = process.env.PORT || 10080;
+
+/* ============================
+   START PTS (katram spēlētājam sākuma punkti)
+   ============================ */
+const START_PTS = Math.max(
+  0,
+  Math.min(1_000_000_000, parseInt(process.env.START_PTS || "1000", 10) || 1000)
+);
 
 /* ============================
    AUTO-START (bez READY)
@@ -34,15 +43,11 @@ const AUTO_START_MS = Math.max(
 
 /* ============================
    AUTO-NEXT HAND (pēc rezultāta)
-   - lai uz telefona rezultāts/toast paspēj parādīties, bieži gribas ilgāku pauzi
-   - ja negribi – atstāj vienādu ar AUTO_START_MS vai uzliec env AUTO_NEXT_HAND_MS=1200
+   - lai uz telefona rezultāts/toast paspēj parādīties
    ============================ */
 const AUTO_NEXT_HAND_MS = Math.max(
   250,
-  Math.min(
-    20000,
-    parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000
-  )
+  Math.min(20000, parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000)
 );
 
 // “Galda/Galdiņa” pamata likme (uz vieninieku = 1)
@@ -319,6 +324,36 @@ function safeAvatarUrl(u) {
 }
 
 /* ============================
+   PUNKTI per USERNAME (istabas ietvaros)
+   - ja cilvēks iziet un atnāk ar to pašu niku, punkti paliek
+   ============================ */
+function getUserPts(room, username) {
+  if (!username) return START_PTS;
+  const v = room.userPts?.[username];
+  return typeof v === "number" ? v : START_PTS;
+}
+function setUserPts(room, username, pts) {
+  if (!username) return;
+  if (!room.userPts) room.userPts = Object.create(null);
+  room.userPts[username] = pts;
+
+  // viegls limits, lai nesakrājas bezgalīgi (praktiski pietiek)
+  if (!room.userPtsOrder) room.userPtsOrder = [];
+  if (!room.userPtsOrder.includes(username)) room.userPtsOrder.push(username);
+
+  const LIMIT = 300;
+  while (room.userPtsOrder.length > LIMIT) {
+    const old = room.userPtsOrder.shift();
+    if (old && room.userPts[old] != null) delete room.userPts[old];
+  }
+}
+function syncAllUserPts(room) {
+  for (const p of room.players) {
+    if (p?.username) setUserPts(room, p.username, p.matchPts);
+  }
+}
+
+/* ============================
    AUTO-START helperi
    ============================ */
 function roomAllConnected(room) {
@@ -343,14 +378,12 @@ function scheduleAutoStart(room, reason) {
   if (!roomHasAllPlayers(room)) return;
   if (!roomAllConnected(room)) return;
 
-  // “bez READY spiešanas”: mēs READY uzliekam automātiski,
-  // bet ja kāds tomēr explicit uzliek ready=false, tas var pauzēt auto-start
+  // ja kāds uzliek ready=false, var pauzēt auto-start
   if (!roomAllReady(room)) return;
 
   // seeds parasti ir uzreiz no app.js; ja nav, nepiespiedīsim startu
   if (!roomAllSeeded(room)) return;
 
-  // ja finishHandToLobby uzlicis override (pēc rezultāta), izmantojam to vienreiz
   const delayMs =
     typeof room.autoDelayOverrideMs === "number" && room.autoDelayOverrideMs >= 0
       ? room.autoDelayOverrideMs
@@ -373,7 +406,6 @@ function scheduleAutoStart(room, reason) {
 
 /* ============================
    LOBBY ROOMS LIST (PUBLIKĀ INFORMĀCIJA)
-   - nekad nerādām: hands, seeds, talonu, deck, discard utt.
    ============================ */
 function getRoomSummary(room) {
   const seats = [0, 1, 2];
@@ -394,12 +426,10 @@ function getRoomSummary(room) {
     bigSeat: typeof room.bigSeat === "number" ? room.bigSeat : null,
     dealerSeat: typeof room.dealerSeat === "number" ? room.dealerSeat : 0,
 
-    // compatibility fields (ērti front-endam)
     occupiedSeats,
     openSeatsCount: openSeats.length,
     playerCount: occupiedSeats,
 
-    // detalizēti
     openSeats,
     players: seats.map((seat) => {
       const p = occ.get(seat);
@@ -409,7 +439,7 @@ function getRoomSummary(room) {
         username: p.username,
         connected: !!p.connected,
         ready: !!p.ready,
-        matchPts: typeof p.matchPts === "number" ? p.matchPts : 0,
+        matchPts: typeof p.matchPts === "number" ? p.matchPts : START_PTS,
         avatarUrl: p.avatarUrl || ""
       };
     }),
@@ -451,22 +481,23 @@ function newRoom(roomId) {
     roomId,
     phase: "LOBBY",
 
-    // AUTO-START timer
     autoTimer: null,
-
-    // vienreizējs override AUTO-NEXT gadījumam
     autoDelayOverrideMs: null,
 
+    // punkti per username (istabas ietvaros)
+    userPts: Object.create(null),
+    userPtsOrder: [],
+
     players: [
-      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: 0 },
-      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: 0 },
-      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: 0 }
+      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
+      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
+      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS }
     ],
 
     dealerSeat: 0,
     handNo: 0,
 
-    fairness: null, // { serverCommit, serverSecret, serverReveal, combinedHash }
+    fairness: null,
 
     bids: [],
     bidTurnSeat: 0,
@@ -581,6 +612,9 @@ function preparePlayPhase(room) {
 function applyPayEachSigned(room, bigSeat, payEachSigned) {
   room.players[bigSeat].matchPts += payEachSigned * 2;
   for (const p of room.players) if (p.seat !== bigSeat) p.matchPts -= payEachSigned;
+
+  // sync punkti per username
+  syncAllUserPts(room);
 }
 
 function finishHandToLobby(room, lastResult, extraNote) {
@@ -588,12 +622,11 @@ function finishHandToLobby(room, lastResult, extraNote) {
 
   room.phase = "LOBBY";
 
-  // BEZ READY spiešanas: pēc partijas paliek “gatavi”
   for (const p of room.players) {
     if (p.username) p.ready = true;
   }
 
-  // pēc partijas dodam lielāku pauzi, lai uz telefona paspēj toast/animācijas
+  // pēc partijas pauze (telefoniem)
   room.autoDelayOverrideMs = AUTO_NEXT_HAND_MS;
 
   room.dealerSeat = nextSeatCW(room.dealerSeat);
@@ -765,6 +798,9 @@ function scoreGalds(room) {
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
 
+  // sync punkti per username
+  syncAllUserPts(room);
+
   const winnerSeat = deltas.indexOf(Math.max(...deltas));
   const names = room.players.map((p) => p.username || null);
 
@@ -807,7 +843,7 @@ function publicPlayers(room) {
     avatarUrl: p.avatarUrl,
     ready: p.ready,
     connected: p.connected,
-    matchPts: p.matchPts
+    matchPts: typeof p.matchPts === "number" ? p.matchPts : START_PTS
   }));
 }
 
@@ -840,7 +876,8 @@ function sanitizeStateForSeat(room, seat) {
       trumpsEnabled: !!trumps,
       galdsPay: GALDS_PAY,
       galdsLoserPts: -(GALDS_PAY * 2),
-      galdsSplitLoserPts: -GALDS_PAY
+      galdsSplitLoserPts: -GALDS_PAY,
+      startPts: START_PTS
     },
 
     leaderSeat: room.leaderSeat,
@@ -877,7 +914,6 @@ function emitRoom(room, extra) {
 
   broadcastRoomsUpdate();
 
-  // AUTO-NEXT HAND (bez READY spiešanas)
   scheduleAutoStart(room, "emitRoom");
 }
 
@@ -923,10 +959,16 @@ io.on("connection", (socket) => {
       if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
+      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+
+      // ja tas ir jauns ienācējs (nevis reconnect), ieliekam viņa punktus no userPts vai START_PTS
+      if (!wasRejoin) {
+        room.players[seat].matchPts = getUserPts(room, username);
+      }
+
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
 
-      // BEZ READY spiešanas: auto-ready
       room.players[seat].ready = true;
 
       room.players[seat].connected = true;
@@ -934,6 +976,9 @@ io.on("connection", (socket) => {
 
       room.players[seat].seed =
         clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+
+      // sync punkti per username
+      setUserPts(room, username, room.players[seat].matchPts);
 
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
@@ -963,10 +1008,15 @@ io.on("connection", (socket) => {
       if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
+      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+
+      if (!wasRejoin) {
+        room.players[seat].matchPts = getUserPts(room, username);
+      }
+
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
 
-      // BEZ READY spiešanas: auto-ready
       room.players[seat].ready = true;
 
       room.players[seat].connected = true;
@@ -974,6 +1024,8 @@ io.on("connection", (socket) => {
 
       room.players[seat].seed =
         clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+
+      setUserPts(room, username, room.players[seat].matchPts);
 
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
@@ -994,7 +1046,9 @@ io.on("connection", (socket) => {
     if (room && typeof seat === "number") {
       clearAutoStart(room);
 
-      const keepPts = room.players[seat].matchPts;
+      const uname = room.players[seat].username;
+      if (uname) setUserPts(room, uname, room.players[seat].matchPts);
+
       room.players[seat] = {
         seat,
         username: null,
@@ -1003,7 +1057,7 @@ io.on("connection", (socket) => {
         connected: false,
         socketId: null,
         seed: null,
-        matchPts: keepPts
+        matchPts: START_PTS
       };
       emitRoom(room, { note: "LEAVE" });
     }
@@ -1038,7 +1092,6 @@ io.on("connection", (socket) => {
   socket.on("fair:seed", setSeed);
   socket.on("seed", setSeed);
 
-  // Atstājam savietojamībai: ja kāds tomēr grib pauzēt, var uzlikt ready=false
   socket.on("zole:ready", (payload, ack) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
@@ -1275,6 +1328,7 @@ function normalizeCard(x) {
 
 server.listen(PORT, () => {
   console.log(`[zole] listening on :${PORT}`);
+  console.log(`[zole] START_PTS=${START_PTS}`);
   console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
   console.log(`[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
   console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
