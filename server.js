@@ -25,7 +25,10 @@ const PORT = process.env.PORT || 10080;
 // “Galda/Galdiņa” pamata likme (uz vieninieku = 1)
 const GALDS_PAY = Math.max(
   1,
-  Math.min(5, parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "1", 10) || 1)
+  Math.min(
+    5,
+    parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "1", 10) || 1
+  )
 );
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
@@ -41,8 +44,8 @@ const app = express();
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "256kb" }));
 
-app.get("/", (req, res) => res.send("OK"));
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/", (_req, res) => res.send("OK"));
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -70,7 +73,16 @@ function nonTrumpStrengthStd(c) {
 }
 
 // Bez trumpjiem (Mazā) stiprums: A > 10 > K > Q > J > 9 > 8 > 7
-const NO_TRUMP_RANK = { A: 7, "10": 6, K: 5, Q: 4, J: 3, "9": 2, "8": 1, "7": 0 };
+const NO_TRUMP_RANK = {
+  A: 7,
+  "10": 6,
+  K: 5,
+  Q: 4,
+  J: 3,
+  "9": 2,
+  "8": 1,
+  "7": 0
+};
 function noTrumpStrength(c) {
   return NO_TRUMP_RANK[c.r] ?? 0;
 }
@@ -296,6 +308,7 @@ function getRoomSummary(room) {
   }
 
   const openSeats = seats.filter((s) => !occ.has(s));
+  const occupiedSeats = occ.size;
 
   return {
     roomId: room.roomId,
@@ -305,7 +318,12 @@ function getRoomSummary(room) {
     bigSeat: typeof room.bigSeat === "number" ? room.bigSeat : null,
     dealerSeat: typeof room.dealerSeat === "number" ? room.dealerSeat : 0,
 
-    playerCount: occ.size,
+    // compatibility fields (ērti front-endam)
+    occupiedSeats,
+    openSeatsCount: openSeats.length,
+    playerCount: occupiedSeats,
+
+    // detalizēti
     openSeats, // piem. [1,2] => brīvas 2 vietas
 
     players: seats.map((seat) => {
@@ -339,8 +357,8 @@ function listPublicRooms() {
 
   // kārtošana: vispirms ar brīvām vietām, tad pēc ID
   out.sort((a, b) => {
-    const aOpen = a.openSeats?.length || 0;
-    const bOpen = b.openSeats?.length || 0;
+    const aOpen = a.openSeatsCount ?? (a.openSeats?.length || 0);
+    const bOpen = b.openSeatsCount ?? (b.openSeats?.length || 0);
     if (aOpen !== bOpen) return bOpen - aOpen;
     return String(a.roomId).localeCompare(String(b.roomId));
   });
@@ -536,30 +554,24 @@ function scoreTakeOrZole(room) {
 
     if (bigWins) {
       if (bigTricks === 8) {
-        // Lielais +6, katrs Mazais -3 => payEach = +3
-        payEachSigned = +3;
+        payEachSigned = +3; // L +6, katrs M -3
         status = "UZVAR BEZTUKŠĀ";
       } else if (bigEyes >= 91) {
-        // Lielais +4, katrs Mazais -2 => payEach = +2
-        payEachSigned = +2;
+        payEachSigned = +2; // L +4, katrs M -2
         status = "UZVAR JAŅOS";
       } else {
-        // Lielais +2, katrs Mazais -1 => payEach = +1
-        payEachSigned = +1;
+        payEachSigned = +1; // L +2, katrs M -1
         status = "UZVAR";
       }
     } else {
       if (bigTricks === 0) {
-        // Lielais -8, katrs Mazais +4 => payEach = -4
-        payEachSigned = -4;
+        payEachSigned = -4; // L -8, katrs M +4
         status = "ZAUDĒ BEZTUKŠĀ";
       } else if (bigEyes <= 30) {
-        // Lielais -6, katrs Mazais +3 => payEach = -3
-        payEachSigned = -3;
+        payEachSigned = -3; // L -6, katrs M +3
         status = "ZAUDĒ JAŅOS";
       } else {
-        // Lielais -4, katrs Mazais +2 => payEach = -2
-        payEachSigned = -2;
+        payEachSigned = -2; // L -4, katrs M +2
         status = "ZAUDĒ";
       }
     }
@@ -570,21 +582,17 @@ function scoreTakeOrZole(room) {
     bigWins = bigEyes >= 61;
 
     if (!bigWins) {
-      // Lielais -12, katrs Mazais +6 => payEach = -6
-      payEachSigned = -6;
+      payEachSigned = -6; // L -12, katrs M +6
       status = "ZAUDĒ";
     } else {
       if (bigTricks === 8) {
-        // Lielais +14, katrs Mazais -7 => payEach = +7
-        payEachSigned = +7;
+        payEachSigned = +7; // L +14, katrs M -7
         status = "UZVAR BEZTUKŠĀ";
       } else if (bigEyes >= 91) {
-        // Lielais +12, katrs Mazais -6 => payEach = +6
-        payEachSigned = +6;
+        payEachSigned = +6; // L +12, katrs M -6
         status = "UZVAR JAŅOS";
       } else {
-        // Lielais +10, katrs Mazais -5 => payEach = +5
-        payEachSigned = +5;
+        payEachSigned = +5; // L +10, katrs M -5
         status = "UZVAR";
       }
     }
@@ -621,8 +629,7 @@ function scoreMaza(room, reason) {
   const bigTricks = trickCount(room.taken[bigSeat]);
   const bigWins = bigTricks === 0;
 
-  // Lielais +12 / -12 => payEach = +6 / -6
-  const payEachSigned = bigWins ? +6 : -6;
+  const payEachSigned = bigWins ? +6 : -6; // L +12/-12
   const status = bigWins ? "UZVAR" : "ZAUDĒ";
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
@@ -659,7 +666,7 @@ function scoreGalds(room) {
   const maxTr = Math.max(...tricks);
   let losers = [0, 1, 2].filter((s) => tricks[s] === maxTr);
 
-  // tie-break pēc acīm, ja 2 (vai 3) ir max-tricks
+  // tie-break pēc acīm
   if (losers.length > 1) {
     const maxEyesAmong = Math.max(...losers.map((s) => eyes[s]));
     losers = losers.filter((s) => eyes[s] === maxEyesAmong);
@@ -684,13 +691,12 @@ function scoreGalds(room) {
     loserSeats = [a, b];
     note = `GALDS: split losers seat${a}&seat${b}`;
   } else {
-    // teorētiski: pilnīgs neizšķirts
     note = `GALDS: all equal`;
   }
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
 
-  const winnerSeat = deltas.indexOf(Math.max(...deltas)); // informācijai UI (tas ar +2 vai viens no +1)
+  const winnerSeat = deltas.indexOf(Math.max(...deltas));
   const names = room.players.map((p) => p.username || null);
 
   const res = {
@@ -813,9 +819,14 @@ io.on("connection", (socket) => {
   // Lobby subscribe
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
-    try { ack?.({ ok: true }); } catch {}
+    try {
+      ack?.({ ok: true });
+    } catch {}
+
     // uzreiz iedodam sarakstu
-    try { socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() }); } catch {}
+    try {
+      socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() });
+    } catch {}
   });
 
   // Pull variants caur socket
@@ -909,7 +920,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("room:leave", (payload, ack) => {
+  socket.on("room:leave", (_payload, ack) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -1002,8 +1013,14 @@ io.on("connection", (socket) => {
     if (bidRaw === "TAKE") bidRaw = "ŅEMT GALDU";
 
     // MAZĀ alias
-    if (bidRaw === "MAZA_ZOLE" || bidRaw === "MAZA ZOLE" || bidRaw === "MAZA" || bidRaw === "MAZĀ ZOLE")
+    if (
+      bidRaw === "MAZA_ZOLE" ||
+      bidRaw === "MAZA ZOLE" ||
+      bidRaw === "MAZA" ||
+      bidRaw === "MAZĀ ZOLE"
+    ) {
       bidRaw = "MAZĀ";
+    }
 
     const allowed = new Set(["GARĀM", "ŅEMT GALDU", "ZOLE", "MAZĀ"]);
     if (!allowed.has(bidRaw)) return ack?.({ ok: false, error: "BAD_BID" });
@@ -1158,7 +1175,6 @@ io.on("connection", (socket) => {
     if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
     if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
 
-    // fallback
     return scoreTakeOrZole(room);
   });
 
