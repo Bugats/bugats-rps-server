@@ -36,6 +36,76 @@ const { URL } = require("url");
 const PORT = process.env.PORT || 10080;
 
 /* ============================
+   COOKIE AUTH (lai /me strādā ar credentials:include)
+   ============================ */
+const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "zole_token";
+const COOKIE_SECURE = String(process.env.COOKIE_SECURE || "1") !== "0"; // prod: 1
+const COOKIE_SAMESITE = process.env.COOKIE_SAMESITE || "None"; // cross-site: None
+const COOKIE_MAX_AGE_SEC = Math.max(
+  60,
+  Math.min(60 * 60 * 24 * 365, parseInt(process.env.COOKIE_MAX_AGE_SEC || String(60 * 60 * 24 * 30), 10) || (60 * 60 * 24 * 30))
+);
+
+function parseCookies(header) {
+  const out = Object.create(null);
+  const s = String(header || "");
+  if (!s) return out;
+  const parts = s.split(";");
+  for (const p of parts) {
+    const idx = p.indexOf("=");
+    if (idx === -1) continue;
+    const k = p.slice(0, idx).trim();
+    const v = p.slice(idx + 1).trim();
+    if (!k) continue;
+    out[k] = decodeURIComponent(v || "");
+  }
+  return out;
+}
+
+function setAuthCookie(res, token) {
+  const bits = [
+    `${COOKIE_NAME}=${encodeURIComponent(String(token || ""))}`,
+    `Path=/`,
+    `Max-Age=${COOKIE_MAX_AGE_SEC}`,
+    `HttpOnly`,
+    `SameSite=${COOKIE_SAMESITE}`
+  ];
+  if (COOKIE_SAMESITE.toLowerCase() === "none") {
+    // modern browsers prasa Secure, ja SameSite=None
+    if (COOKIE_SECURE) bits.push("Secure");
+  } else {
+    if (COOKIE_SECURE) bits.push("Secure");
+  }
+  res.setHeader("Set-Cookie", bits.join("; "));
+}
+
+function clearAuthCookie(res) {
+  const bits = [
+    `${COOKIE_NAME}=`,
+    `Path=/`,
+    `Max-Age=0`,
+    `HttpOnly`,
+    `SameSite=${COOKIE_SAMESITE}`
+  ];
+  if (COOKIE_SAMESITE.toLowerCase() === "none") {
+    if (COOKIE_SECURE) bits.push("Secure");
+  } else {
+    if (COOKIE_SECURE) bits.push("Secure");
+  }
+  res.setHeader("Set-Cookie", bits.join("; "));
+}
+
+function getTokenFromReq(req) {
+  const auth = String(req.headers.authorization || "").trim();
+  if (auth) {
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (m && m[1]) return m[1].trim();
+  }
+  const cookies = parseCookies(req.headers.cookie);
+  return String(cookies[COOKIE_NAME] || cookies.token || cookies.auth_token || "").trim();
+}
+
+/* ============================
    START PTS (katram spēlētājam sākuma punkti)
    ============================ */
 const START_PTS = Math.max(
@@ -162,10 +232,6 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
   return { player: p, changed };
 }
 
-/**
- * IMPORTANT: “hands” skaitu palielinām arī tad, ja delta = 0 (piem., GALDS: all equal),
- * citādi leaderboard “hands” statistika būs neprecīza.
- */
 function lbApplyDeltas(roomPlayers, deltasByUsername) {
   let any = false;
 
@@ -178,16 +244,13 @@ function lbApplyDeltas(roomPlayers, deltasByUsername) {
 
     const d = Number(deltasByUsername?.[u] ?? 0) || 0;
 
-    // Viena partija nospēlēta (vienmēr)
     player.hands = Number(player.hands || 0) + 1;
     player.updatedAt = Date.now();
     any = true;
 
-    // Punktu delta (ja ir)
     if (d !== 0) {
       player.pts = Number(player.pts || 0) + d;
     } else if (changed) {
-      // piem., avatārs jauns vai jauns spēlētājs
       any = true;
     }
   }
@@ -206,9 +269,17 @@ function lbTop10() {
   return arr.slice(0, 10);
 }
 
+function lbPts(username) {
+  if (!username) return START_PTS;
+  const p = LB.players?.[username];
+  return typeof p?.pts === "number" && Number.isFinite(p.pts) ? p.pts : START_PTS;
+}
+
 app.get("/leaderboard", (_req, res) => {
-  res.json({ ok: true, top: lbTop10(), ts: Date.now() });
+  const top10 = lbTop10();
+  res.json({ ok: true, top10, top: top10, ts: Date.now() });
 });
+
 /* ============================
    AUTH (signup/login) — lai strādā auth.html/auth.js
    - POST /signup, /login (+ alias /api/* un /auth/*)
@@ -328,7 +399,6 @@ function verifyToken(token) {
 }
 
 function normalizeUserKey(username) {
-  // ja gribi case-insensitive, tad: return String(username||"").trim().toLowerCase();
   return String(username || "").trim();
 }
 
@@ -345,9 +415,21 @@ function userSet(u) {
 
 function authResponse(res, user) {
   const token = signToken({ username: user.username, avatarUrl: user.avatarUrl || "" });
+
+  // nodrošina LB ierakstu un pts
+  const t = lbTouch(user.username, user.avatarUrl || "", START_PTS);
+  if (t.changed) lbSave();
+  const pts = Number(t.player?.pts ?? START_PTS) || START_PTS;
+
+  // uzliek cookie, lai /me strādā ar credentials:include
+  try {
+    setAuthCookie(res, token);
+  } catch {}
+
   return res.json({
     ok: true,
     token,
+    pts, // svarīgi priekš profila
     user: { username: user.username, avatarUrl: user.avatarUrl || "" },
     ts: Date.now()
   });
@@ -395,10 +477,6 @@ app.post(SIGNUP_ROUTES, (req, res) => {
   };
   userSet(user);
 
-  // leaderboard: nodrošini ierakstu (ja nav)
-  const t = lbTouch(username, user.avatarUrl, START_PTS);
-  if (t.changed) lbSave();
-
   return authResponse(res, user);
 });
 
@@ -415,26 +493,47 @@ app.post(LOGIN_ROUTES, (req, res) => {
     return res.status(401).json({ ok: false, error: "BAD_LOGIN" });
   }
 
-  // ja atnāk avatarUrl loginā, atjaunojam (un arī leaderboard)
   const avatarUrl = safeAvatarUrlAuth(req.body?.avatarUrl);
   if (avatarUrl && avatarUrl !== (u.avatarUrl || "")) {
     u.avatarUrl = avatarUrl;
     u.updatedAt = Date.now();
     userSet(u);
-
-    const t = lbTouch(username, u.avatarUrl, START_PTS);
-    if (t.changed) lbSave();
   }
 
   return authResponse(res, u);
 });
 
-// (noder debugam) /me
+// (noder) logout
+app.post(["/logout", "/auth/logout", "/api/logout", "/api/auth/logout"], (_req, res) => {
+  try {
+    clearAuthCookie(res);
+  } catch {}
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// /me — pieņem Bearer vai cookie; atgriež arī pts
 app.get(["/me", "/auth/me", "/api/me", "/api/auth/me"], (req, res) => {
-  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  const token = getTokenFromReq(req);
   const v = verifyToken(token);
   if (!v.ok) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
-  return res.json({ ok: true, user: v.payload, ts: Date.now() });
+
+  const username = String(v.payload?.username || "").trim();
+  const u = userGet(username);
+
+  const avatarUrl = (u?.avatarUrl || v.payload?.avatarUrl || "").toString();
+  const t = lbTouch(username, avatarUrl, START_PTS);
+  if (t.changed) lbSave();
+
+  const pts = Number(t.player?.pts ?? START_PTS) || START_PTS;
+
+  return res.json({
+    ok: true,
+    username,
+    avatarUrl,
+    pts,
+    user: { username, avatarUrl }, // backward compat
+    ts: Date.now()
+  });
 });
 
 const server = http.createServer(app);
@@ -444,7 +543,8 @@ const io = new Server(server, {
 
 function broadcastLeaderboardUpdate() {
   try {
-    io.emit("leaderboard:update", { top: lbTop10(), ts: Date.now() });
+    const top10 = lbTop10();
+    io.emit("leaderboard:update", { top10, top: top10, ts: Date.now() });
   } catch {}
 }
 
@@ -482,13 +582,11 @@ function nextSeatCW(seat) {
 
 const EYES = { A: 11, "10": 10, K: 4, Q: 3, J: 2, "9": 0, "8": 0, "7": 0 };
 
-// Standarta (ar trumpjiem) “parastā masta” stiprums: A > 10 > K > 9
 const NON_TRUMP_RANK_STD = { A: 4, "10": 3, K: 2, "9": 1 };
 function nonTrumpStrengthStd(c) {
   return NON_TRUMP_RANK_STD[c.r] ?? 0;
 }
 
-// Bez trumpjiem (Mazā) stiprums: A > 10 > K > Q > J > 9 > 8 > 7
 const NO_TRUMP_RANK = {
   A: 7,
   "10": 6,
@@ -504,7 +602,6 @@ function noTrumpStrength(c) {
 }
 
 function buildDeck() {
-  // 26 kārtis: (A,K,Q,J,10,9) visos mastos + 8♦,7♦
   const deck = [];
   const base = ["A", "K", "Q", "J", "10", "9"];
   for (const s of ["C", "S", "H"]) {
@@ -528,14 +625,10 @@ function cardKey(c) {
   return `${c.r}${c.s}`;
 }
 
-/* ===== Standarta trumpji (klasiskā zole) =====
-   Trumpji: visas Q; visas J; visi ♦
-*/
 function isTrumpStd(c) {
   return c.s === "D" || c.r === "Q" || c.r === "J";
 }
 
-// Trumpju secība (Q♣ Q♠ Q♥ Q♦ J♣ J♠ J♥ J♦ A♦ 10♦ K♦ 9♦ 8♦ 7♦)
 const TRUMP_ORDER = [
   { r: "Q", s: "C" },
   { r: "Q", s: "S" },
@@ -567,7 +660,7 @@ const CONTRACT_GALDS = "GALDS";
 
 function rulesForContract(contract) {
   if (contract === CONTRACT_MAZA) return { trumps: false };
-  return { trumps: true }; // ŅEMT GALDU/ZOLE/GALDS
+  return { trumps: true };
 }
 
 function leadFollow(room, leadCard) {
@@ -629,7 +722,7 @@ function pickTrickWinner(room, plays) {
       else {
         const a = trumpStrengthStd(p.card);
         const b = trumpStrengthStd(best.card);
-        if ((a ?? 999) < (b ?? 999)) best = p; // mazāks indekss = stiprāks
+        if ((a ?? 999) < (b ?? 999)) best = p;
       }
     }
     return best ? best.seat : plays[0].seat;
@@ -713,13 +806,14 @@ function safeAvatarUrl(u) {
 }
 
 /* ============================
-   PUNKTI per USERNAME (istabas ietvaros)
-   - ja cilvēks iziet un atnāk ar to pašu niku, punkti paliek
+   PUNKTI per USERNAME
+   - ja jaunā istabā nav vēstures -> ņemam GLOBAL pts no LB
    ============================ */
 function getUserPts(room, username) {
   if (!username) return START_PTS;
   const v = room.userPts?.[username];
-  return typeof v === "number" ? v : START_PTS;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return lbPts(username);
 }
 function setUserPts(room, username, pts) {
   if (!username) return;
@@ -876,7 +970,6 @@ function newRoom(roomId) {
     autoTimer: null,
     autoDelayOverrideMs: null,
 
-    // punkti per username (istabas ietvaros)
     userPts: Object.create(null),
     userPtsOrder: [],
 
@@ -1127,7 +1220,6 @@ function scoreTakeOrZole(room) {
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 
-  // leaderboard update (delta pēc šīs partijas)
   const deltas = deltaMapFromSnapshot(room, snap);
   lbApplyDeltas(room.players, deltas);
   broadcastLeaderboardUpdate();
@@ -1168,7 +1260,6 @@ function scoreMaza(room, reason) {
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 
-  // leaderboard update
   const deltas = deltaMapFromSnapshot(room, snap);
   lbApplyDeltas(room.players, deltas);
   broadcastLeaderboardUpdate();
@@ -1230,7 +1321,6 @@ function scoreGalds(room) {
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
   syncAllUserPts(room);
 
-  // leaderboard update (arī tad, ja deltas=0, hands jāskaita)
   const deltaByUsername = Object.create(null);
   for (let s = 0; s < 3; s++) {
     const u = room.players[s]?.username;
@@ -1380,23 +1470,24 @@ io.on("connection", (socket) => {
     ack?.({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
   });
 
-  // Leaderboard pull (TOP10)
-  socket.on("leaderboard:top10", (cb) => {
+  // Leaderboard pull (TOP10) — saderīgs ar abiem parakstiem:
+  // 1) emit("leaderboard:top10", cb)
+  // 2) emit("leaderboard:top10", payload, cb)
+  socket.on("leaderboard:top10", (a, b) => {
+    const ack = typeof a === "function" ? a : (typeof b === "function" ? b : null);
     try {
-      cb && cb({ ok: true, top: lbTop10(), ts: Date.now() });
+      const top10 = lbTop10();
+      ack && ack({ ok: true, top10, top: top10, ts: Date.now() });
     } catch {}
   });
 
   function pickSeat(room, username) {
-    // 1) “spoku” seat atgūšana: tas pats username, bet atvienots
     let seat = room.players.findIndex((p) => p.username === username && !p.connected);
     if (seat !== -1) return seat;
 
-    // 2) duplicēts nick (ja jau ir online)
     const dup = room.players.find((p) => p.username === username && p.connected);
     if (dup) return -2;
 
-    // 3) brīva vieta
     seat = room.players.findIndex((p) => !p.username);
     return seat;
   }
@@ -1437,7 +1528,6 @@ io.on("connection", (socket) => {
 
       setUserPts(room, username, room.players[seat].matchPts);
 
-      // leaderboard: nodrošini ierakstu (ja jauns / atjauno avatāru)
       const t = lbTouch(username, room.players[seat].avatarUrl, room.players[seat].matchPts);
       if (t.changed) lbSave();
 
@@ -1490,7 +1580,6 @@ io.on("connection", (socket) => {
 
       setUserPts(room, username, room.players[seat].matchPts);
 
-      // leaderboard: nodrošini ierakstu (ja jauns / atjauno avatāru)
       const t = lbTouch(username, room.players[seat].avatarUrl, room.players[seat].matchPts);
       if (t.changed) lbSave();
 
@@ -1516,7 +1605,6 @@ io.on("connection", (socket) => {
       const uname = room.players[seat].username;
       if (uname) setUserPts(room, uname, room.players[seat].matchPts);
 
-      // Ja kāds iziet spēles laikā → lai istaba neiesprūst, atgriežam uz LOBBY un reset hand
       const leavingMidHand = room.phase !== "LOBBY";
 
       room.players[seat] = {
@@ -1541,7 +1629,6 @@ io.on("connection", (socket) => {
         resetHandState(room);
       }
 
-      // Ja istaba kļūst tukša → izdzēšam (pret memory leak)
       if (roomIsEmpty(room)) {
         rooms.delete(room.roomId);
         broadcastRoomsUpdate();
@@ -1793,7 +1880,6 @@ io.on("connection", (socket) => {
       room.players[seat].connected = false;
       room.players[seat].socketId = null;
 
-      // auto-start nedrīkst sākt, ja kāds nav online
       room.players[seat].ready = false;
 
       emitRoom(room, { note: "DISCONNECT" });
