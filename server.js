@@ -1,27 +1,6 @@
 /* ============================
    THEZONE.LV — ZOLE (BEZ PULĒM) — PILNĀ LOĢIKA (LV nosaukumi)
-   - 3 spēlētāji, 26 kārtis
-   - LOBBY → BIDDING → (ŅEMT GALDU: DISCARD2) → PLAY 8 stiķi → LOBBY
-   - Solīšana: GARĀM / ŅEMT GALDU / ZOLE / MAZĀ
-   - ŅEMT GALDU: paņem talonu + NOROK 2 (tikai Lielais)
-   - ZOLE: bez talona
-   - MAZĀ: bez talona, BEZ TRUMPJIEM, mērķis 0 stiķi (tūlītējs zaudējums, ja paņem 1 stiķi)
-   - Visi GARĀM: GALDS (primāri stiķi, ja vienādi -> acis; ja arī vienādi -> dalīts)
-   - Commit–reveal fairness (serverCommit + 3 client seed → deterministisks shuffle)
-   - Seat “spoku” FIX: join/create vispirms atgriež seat pēc username (ja bija atvienots), tikai tad ņem tukšu.
-   - KĀRTIS IZDALĀS UZREIZ pie NEW_HAND (kad ir seeds)
-   - ROTĀCIJA PULKSTEŅRĀDĪTĀJA VIRZIENĀ (CW): next = (seat+2)%3
-   + LOBBY ROOMS LIST (caurspīdīgas istabas + brīvās vietas)
-   + AUTO-START / AUTO-NEXT HAND: spēle turpinās bez READY spiešanas
-   + START PTS: katram spēlētājam sākumā 1000 punkti (var vinnēt/zaudēt)
-   + GLOBAL TOP10 LEADERBOARD (failā data/zole_leaderboard.json)
-     - GET /leaderboard
-     - socket: leaderboard:top10 (pull) + leaderboard:update (push pēc SCORE)
-
-   BASELINE scoring (Bugats tabula):
-   - ŅEMT GALDU: +2 / +4 / +6 ; zaudējums -4 / -6 / -8
-   - ZOLE: +10 / +12 / +14 ; zaudējums -12
-   - MAZĀ: +12 ; zaudējums -12 (un tūlītējs zaudējums pie 1 stiķa)
+   (Bugats baseline)
    ============================ */
 
 const express = require("express");
@@ -43,7 +22,13 @@ const COOKIE_SECURE = String(process.env.COOKIE_SECURE || "1") !== "0"; // prod:
 const COOKIE_SAMESITE = process.env.COOKIE_SAMESITE || "None"; // cross-site: None
 const COOKIE_MAX_AGE_SEC = Math.max(
   60,
-  Math.min(60 * 60 * 24 * 365, parseInt(process.env.COOKIE_MAX_AGE_SEC || String(60 * 60 * 24 * 30), 10) || (60 * 60 * 24 * 30))
+  Math.min(
+    60 * 60 * 24 * 365,
+    parseInt(
+      process.env.COOKIE_MAX_AGE_SEC || String(60 * 60 * 24 * 30),
+      10
+    ) || (60 * 60 * 24 * 30)
+  )
 );
 
 function parseCookies(header) {
@@ -68,10 +53,9 @@ function setAuthCookie(res, token) {
     `Path=/`,
     `Max-Age=${COOKIE_MAX_AGE_SEC}`,
     `HttpOnly`,
-    `SameSite=${COOKIE_SAMESITE}`
+    `SameSite=${COOKIE_SAMESITE}`,
   ];
   if (COOKIE_SAMESITE.toLowerCase() === "none") {
-    // modern browsers prasa Secure, ja SameSite=None
     if (COOKIE_SECURE) bits.push("Secure");
   } else {
     if (COOKIE_SECURE) bits.push("Secure");
@@ -85,7 +69,7 @@ function clearAuthCookie(res) {
     `Path=/`,
     `Max-Age=0`,
     `HttpOnly`,
-    `SameSite=${COOKIE_SAMESITE}`
+    `SameSite=${COOKIE_SAMESITE}`,
   ];
   if (COOKIE_SAMESITE.toLowerCase() === "none") {
     if (COOKIE_SECURE) bits.push("Secure");
@@ -102,7 +86,9 @@ function getTokenFromReq(req) {
     if (m && m[1]) return m[1].trim();
   }
   const cookies = parseCookies(req.headers.cookie);
-  return String(cookies[COOKIE_NAME] || cookies.token || cookies.auth_token || "").trim();
+  return String(
+    cookies[COOKIE_NAME] || cookies.token || cookies.auth_token || ""
+  ).trim();
 }
 
 /* ============================
@@ -114,24 +100,19 @@ const START_PTS = Math.max(
 );
 
 /* ============================
-   AUTO-START (bez READY)
-   - Kad istabā ir 3/3, visi online un “ready” (auto-true), startē pēc pauzes
+   AUTO-START / AUTO-NEXT HAND
    ============================ */
 const AUTO_START_MS = Math.max(
   250,
   Math.min(15000, parseInt(process.env.AUTO_START_MS || "1200", 10) || 1200)
 );
 
-/* ============================
-   AUTO-NEXT HAND (pēc rezultāta)
-   - lai uz telefona rezultāts/toast paspēj parādīties
-   ============================ */
 const AUTO_NEXT_HAND_MS = Math.max(
   250,
   Math.min(20000, parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000)
 );
 
-// “Galda/Galdiņa” pamata likme (uz vieninieku = 1)
+// “Galda/Galdiņa” pamata likme
 const GALDS_PAY = Math.max(
   1,
   Math.min(
@@ -158,7 +139,6 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 
 /* ============================
    GLOBAL LEADERBOARD (TOP10)
-   - saglabājas failā (data/zole_leaderboard.json)
    ============================ */
 const DATA_DIR = path.join(__dirname, "data");
 const LB_PATH = path.join(DATA_DIR, "zole_leaderboard.json");
@@ -207,7 +187,7 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
           ? initPtsIfNew
           : START_PTS,
       hands: 0,
-      updatedAt: now
+      updatedAt: now,
     };
     LB.players[username] = p;
     changed = true;
@@ -262,8 +242,8 @@ function lbTop10() {
   const arr = Object.values(LB.players || {});
   arr.sort(
     (a, b) =>
-      (Number(b.pts || 0) - Number(a.pts || 0)) ||
-      (Number(b.hands || 0) - Number(a.hands || 0)) ||
+      Number(b.pts || 0) - Number(a.pts || 0) ||
+      Number(b.hands || 0) - Number(a.hands || 0) ||
       String(a.username || "").localeCompare(String(b.username || ""))
   );
   return arr.slice(0, 10);
@@ -272,24 +252,25 @@ function lbTop10() {
 function lbPts(username) {
   if (!username) return START_PTS;
   const p = LB.players?.[username];
-  return typeof p?.pts === "number" && Number.isFinite(p.pts) ? p.pts : START_PTS;
+  return typeof p?.pts === "number" && Number.isFinite(p.pts)
+    ? p.pts
+    : START_PTS;
 }
 
-app.get("/leaderboard", (_req, res) => {
-  const top10 = lbTop10();
-  res.json({ ok: true, top10, top: top10, ts: Date.now() });
-});
+// Leaderboard routes (aliases)
+app.get(
+  ["/leaderboard", "/api/leaderboard", "/auth/leaderboard", "/api/auth/leaderboard"],
+  (_req, res) => {
+    const top10 = lbTop10();
+    res.json({ ok: true, top10, top: top10, ts: Date.now() });
+  }
+);
 
 /* ============================
-   AUTH (signup/login) — lai strādā auth.html/auth.js
-   - POST /signup, /login (+ alias /api/* un /auth/*)
-   - glabājas data/zole_users.json
-   - token: HS256 (bez ārējām pakām)
+   AUTH (signup/login)
    ============================ */
-
 const USERS_PATH = path.join(DATA_DIR, "zole_users.json");
 let USERS = readJson(USERS_PATH, { users: {} });
-// USERS.users[username] = { username, pass, avatarUrl, createdAt, updatedAt }
 
 function usersSave() {
   writeJson(USERS_PATH, USERS);
@@ -339,6 +320,12 @@ function b64url(input) {
     .replace(/\//g, "_");
 }
 
+function b64urlDecodeToUtf8(s) {
+  const str = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = str.length % 4 === 0 ? "" : "=".repeat(4 - (str.length % 4));
+  return Buffer.from(str + pad, "base64").toString("utf8");
+}
+
 function signToken(payload) {
   const secret =
     process.env.AUTH_SECRET ||
@@ -347,7 +334,7 @@ function signToken(payload) {
 
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + 60 * 60 * 24 * 30; // 30 dienas
+  const exp = now + 60 * 60 * 24 * 30;
 
   const body = { ...payload, iat: now, exp };
   const base = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(body))}`;
@@ -376,6 +363,7 @@ function verifyToken(token) {
 
     const [h, p, s] = parts;
     const base = `${h}.${p}`;
+
     const sig = crypto
       .createHmac("sha256", secret)
       .update(base)
@@ -384,9 +372,13 @@ function verifyToken(token) {
       .replace(/\+/g, "-")
       .replace(/\//g, "_");
 
-    if (sig !== s) return { ok: false };
+    // timing-safe compare
+    const a = Buffer.from(sig);
+    const b = Buffer.from(String(s || ""));
+    if (a.length !== b.length) return { ok: false };
+    if (!crypto.timingSafeEqual(a, b)) return { ok: false };
 
-    const json = Buffer.from(p.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const json = b64urlDecodeToUtf8(p);
     const payload = JSON.parse(json);
 
     const now = Math.floor(Date.now() / 1000);
@@ -401,12 +393,10 @@ function verifyToken(token) {
 function normalizeUserKey(username) {
   return String(username || "").trim();
 }
-
 function userGet(username) {
   const key = normalizeUserKey(username);
   return USERS.users[key] || null;
 }
-
 function userSet(u) {
   const key = normalizeUserKey(u.username);
   USERS.users[key] = u;
@@ -420,8 +410,9 @@ function authResponse(res, user) {
   const t = lbTouch(user.username, user.avatarUrl || "", START_PTS);
   if (t.changed) lbSave();
   const pts = Number(t.player?.pts ?? START_PTS) || START_PTS;
+  const hands = Number(t.player?.hands ?? 0) || 0;
 
-  // uzliek cookie, lai /me strādā ar credentials:include
+  // cookie
   try {
     setAuthCookie(res, token);
   } catch {}
@@ -429,32 +420,21 @@ function authResponse(res, user) {
   return res.json({
     ok: true,
     token,
-    pts, // svarīgi priekš profila
-    user: { username: user.username, avatarUrl: user.avatarUrl || "" },
-    ts: Date.now()
+    pts,
+    hands,
+    user: { username: user.username, avatarUrl: user.avatarUrl || "", pts, hands },
+    ts: Date.now(),
   });
 }
 
 const SIGNUP_ROUTES = [
-  "/signup",
-  "/api/signup",
-  "/auth/signup",
-  "/api/auth/signup",
-  "/register",
-  "/api/register",
-  "/auth/register",
-  "/api/auth/register"
+  "/signup", "/api/signup", "/auth/signup", "/api/auth/signup",
+  "/register", "/api/register", "/auth/register", "/api/auth/register",
 ];
 
 const LOGIN_ROUTES = [
-  "/login",
-  "/api/login",
-  "/auth/login",
-  "/api/auth/login",
-  "/signin",
-  "/api/signin",
-  "/auth/signin",
-  "/api/auth/signin"
+  "/login", "/api/login", "/auth/login", "/api/auth/login",
+  "/signin", "/api/signin", "/auth/signin", "/api/auth/signin",
 ];
 
 app.post(SIGNUP_ROUTES, (req, res) => {
@@ -473,7 +453,7 @@ app.post(SIGNUP_ROUTES, (req, res) => {
     pass: pwHash(password),
     avatarUrl: avatarUrl || "",
     createdAt: Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
   };
   userSet(user);
 
@@ -503,7 +483,6 @@ app.post(LOGIN_ROUTES, (req, res) => {
   return authResponse(res, u);
 });
 
-// (noder) logout
 app.post(["/logout", "/auth/logout", "/api/logout", "/api/auth/logout"], (_req, res) => {
   try {
     clearAuthCookie(res);
@@ -511,7 +490,7 @@ app.post(["/logout", "/auth/logout", "/api/logout", "/api/auth/logout"], (_req, 
   res.json({ ok: true, ts: Date.now() });
 });
 
-// /me — pieņem Bearer vai cookie; atgriež arī pts
+// /me — pieņem Bearer vai cookie; atgriež arī pts/hands
 app.get(["/me", "/auth/me", "/api/me", "/api/auth/me"], (req, res) => {
   const token = getTokenFromReq(req);
   const v = verifyToken(token);
@@ -520,25 +499,30 @@ app.get(["/me", "/auth/me", "/api/me", "/api/auth/me"], (req, res) => {
   const username = String(v.payload?.username || "").trim();
   const u = userGet(username);
 
-  const avatarUrl = (u?.avatarUrl || v.payload?.avatarUrl || "").toString();
+  const avatarUrl = String(u?.avatarUrl || v.payload?.avatarUrl || "");
   const t = lbTouch(username, avatarUrl, START_PTS);
   if (t.changed) lbSave();
 
   const pts = Number(t.player?.pts ?? START_PTS) || START_PTS;
+  const hands = Number(t.player?.hands ?? 0) || 0;
 
   return res.json({
     ok: true,
     username,
     avatarUrl,
     pts,
-    user: { username, avatarUrl }, // backward compat
-    ts: Date.now()
+    hands,
+    user: { username, avatarUrl, pts, hands },
+    ts: Date.now(),
   });
 });
 
+/* ============================
+   HTTP + Socket.IO
+   ============================ */
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: corsOptions.origin, credentials: true }
+  cors: { origin: corsOptions.origin, credentials: true },
 });
 
 function broadcastLeaderboardUpdate() {
@@ -551,7 +535,7 @@ function broadcastLeaderboardUpdate() {
 function snapshotSeatPts(room) {
   return (room.players || []).map((p) => ({
     username: p?.username || null,
-    pts: typeof p?.matchPts === "number" ? p.matchPts : START_PTS
+    pts: typeof p?.matchPts === "number" ? p.matchPts : START_PTS,
   }));
 }
 
@@ -579,7 +563,6 @@ function nextSeatCW(seat) {
 /* ============================
    KĀRTIS + NOTEIKUMI
    ============================ */
-
 const EYES = { A: 11, "10": 10, K: 4, Q: 3, J: 2, "9": 0, "8": 0, "7": 0 };
 
 const NON_TRUMP_RANK_STD = { A: 4, "10": 3, K: 2, "9": 1 };
@@ -587,16 +570,7 @@ function nonTrumpStrengthStd(c) {
   return NON_TRUMP_RANK_STD[c.r] ?? 0;
 }
 
-const NO_TRUMP_RANK = {
-  A: 7,
-  "10": 6,
-  K: 5,
-  Q: 4,
-  J: 3,
-  "9": 2,
-  "8": 1,
-  "7": 0
-};
+const NO_TRUMP_RANK = { A: 7, "10": 6, K: 5, Q: 4, J: 3, "9": 2, "8": 1, "7": 0 };
 function noTrumpStrength(c) {
   return NO_TRUMP_RANK[c.r] ?? 0;
 }
@@ -607,8 +581,7 @@ function buildDeck() {
   for (const s of ["C", "S", "H"]) {
     for (const r of base) deck.push({ r, s });
   }
-  for (const r of ["A", "K", "Q", "J", "10", "9", "8", "7"])
-    deck.push({ r, s: "D" });
+  for (const r of ["A", "K", "Q", "J", "10", "9", "8", "7"]) deck.push({ r, s: "D" });
   return deck;
 }
 
@@ -630,20 +603,10 @@ function isTrumpStd(c) {
 }
 
 const TRUMP_ORDER = [
-  { r: "Q", s: "C" },
-  { r: "Q", s: "S" },
-  { r: "Q", s: "H" },
-  { r: "Q", s: "D" },
-  { r: "J", s: "C" },
-  { r: "J", s: "S" },
-  { r: "J", s: "H" },
-  { r: "J", s: "D" },
-  { r: "A", s: "D" },
-  { r: "10", s: "D" },
-  { r: "K", s: "D" },
-  { r: "9", s: "D" },
-  { r: "8", s: "D" },
-  { r: "7", s: "D" }
+  { r: "Q", s: "C" }, { r: "Q", s: "S" }, { r: "Q", s: "H" }, { r: "Q", s: "D" },
+  { r: "J", s: "C" }, { r: "J", s: "S" }, { r: "J", s: "H" }, { r: "J", s: "D" },
+  { r: "A", s: "D" }, { r: "10", s: "D" }, { r: "K", s: "D" }, { r: "9", s: "D" },
+  { r: "8", s: "D" }, { r: "7", s: "D" },
 ];
 const TRUMP_INDEX = new Map(TRUMP_ORDER.map((c, i) => [cardKey(c), i]));
 function trumpStrengthStd(c) {
@@ -651,7 +614,7 @@ function trumpStrengthStd(c) {
 }
 
 /* ============================
-   LV kontrakti (kanoniskie)
+   LV kontrakti
    ============================ */
 const CONTRACT_TAKE = "ŅEMT GALDU";
 const CONTRACT_ZOLE = "ZOLE";
@@ -807,7 +770,6 @@ function safeAvatarUrl(u) {
 
 /* ============================
    PUNKTI per USERNAME
-   - ja jaunā istabā nav vēstures -> ņemam GLOBAL pts no LB
    ============================ */
 function getUserPts(room, username) {
   if (!username) return START_PTS;
@@ -856,7 +818,7 @@ function roomHasAllPlayers(room) {
 function roomAllReady(room) {
   return room.players.every((p) => !!p.username && p.ready);
 }
-function scheduleAutoStart(room, _reason) {
+function scheduleAutoStart(room) {
   clearAutoStart(room);
 
   if (room.phase !== "LOBBY") return;
@@ -886,7 +848,7 @@ function scheduleAutoStart(room, _reason) {
 }
 
 /* ============================
-   LOBBY ROOMS LIST (PUBLIKĀ INFORMĀCIJA)
+   LOBBY ROOMS LIST (PUBLIKĀ INFO)
    ============================ */
 function getRoomSummary(room) {
   const seats = [0, 1, 2];
@@ -921,11 +883,11 @@ function getRoomSummary(room) {
         connected: !!p.connected,
         ready: !!p.ready,
         matchPts: typeof p.matchPts === "number" ? p.matchPts : START_PTS,
-        avatarUrl: p.avatarUrl || ""
+        avatarUrl: p.avatarUrl || "",
       };
     }),
 
-    updatedAt: room.updatedAt || Date.now()
+    updatedAt: room.updatedAt || Date.now(),
   };
 }
 
@@ -953,9 +915,13 @@ function broadcastRoomsUpdate() {
   io.to("lobby").emit("rooms:update", payload);
 }
 
-app.get("/rooms", (_req, res) => {
-  res.json({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
-});
+// Rooms routes (aliases)
+app.get(
+  ["/rooms", "/api/rooms", "/auth/rooms", "/api/auth/rooms"],
+  (_req, res) => {
+    res.json({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
+  }
+);
 
 function roomIsEmpty(room) {
   const cnt = (room.players || []).filter((p) => p && p.username).length;
@@ -974,36 +940,9 @@ function newRoom(roomId) {
     userPtsOrder: [],
 
     players: [
-      {
-        seat: 0,
-        username: null,
-        avatarUrl: "",
-        ready: false,
-        connected: false,
-        socketId: null,
-        seed: null,
-        matchPts: START_PTS
-      },
-      {
-        seat: 1,
-        username: null,
-        avatarUrl: "",
-        ready: false,
-        connected: false,
-        socketId: null,
-        seed: null,
-        matchPts: START_PTS
-      },
-      {
-        seat: 2,
-        username: null,
-        avatarUrl: "",
-        ready: false,
-        connected: false,
-        socketId: null,
-        seed: null,
-        matchPts: START_PTS
-      }
+      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
+      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
+      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
     ],
 
     dealerSeat: 0,
@@ -1031,7 +970,7 @@ function newRoom(roomId) {
     galdsTalonIndex: 0,
 
     lastResult: null,
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
   };
 }
 
@@ -1066,8 +1005,7 @@ function resetHandState(room) {
 
 function dealIfReady(room) {
   if (!roomHasAllPlayers(room)) return false;
-  if (!room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0))
-    return false;
+  if (!room.players.every((p) => typeof p.seed === "string" && p.seed.length > 0)) return false;
 
   const serverSecret = room.fairness?.serverSecret;
   const serverCommit = room.fairness?.serverCommit;
@@ -1101,12 +1039,7 @@ function startNewHand(room) {
 
   const serverSecret = crypto.randomBytes(16).toString("hex");
   const serverCommit = sha256hex(serverSecret);
-  room.fairness = {
-    serverCommit,
-    serverSecret,
-    serverReveal: null,
-    combinedHash: null
-  };
+  room.fairness = { serverCommit, serverSecret, serverReveal: null, combinedHash: null };
 
   room.turnSeat = room.bidTurnSeat;
 
@@ -1128,7 +1061,6 @@ function applyPayEachSigned(room, bigSeat, payEachSigned) {
 
 function finishHandToLobby(room, lastResult, extraNote) {
   room.lastResult = lastResult || null;
-
   room.phase = "LOBBY";
 
   for (const p of room.players) {
@@ -1144,7 +1076,7 @@ function finishHandToLobby(room, lastResult, extraNote) {
 }
 
 /* ============================
-   SCORE — ŅEMT GALDU / ZOLE  (Bugats tabula)
+   SCORE — TAKE/ZOLE (Bugats tabula)
    ============================ */
 function scoreTakeOrZole(room) {
   const snap = snapshotSeatPts(room);
@@ -1174,27 +1106,13 @@ function scoreTakeOrZole(room) {
     bigWins = bigEyes >= 61;
 
     if (bigWins) {
-      if (bigTricks === 8) {
-        payEachSigned = +6;
-        status = "UZVAR BEZTUKŠĀ";
-      } else if (bigEyes >= 91) {
-        payEachSigned = +4;
-        status = "UZVAR JAŅOS";
-      } else {
-        payEachSigned = +2;
-        status = "UZVAR";
-      }
+      if (bigTricks === 8) { payEachSigned = +6; status = "UZVAR BEZTUKŠĀ"; }
+      else if (bigEyes >= 91) { payEachSigned = +4; status = "UZVAR JAŅOS"; }
+      else { payEachSigned = +2; status = "UZVAR"; }
     } else {
-      if (bigTricks === 0) {
-        payEachSigned = -8;
-        status = "ZAUDĒ BEZTUKŠĀ";
-      } else if (bigEyes <= 30) {
-        payEachSigned = -6;
-        status = "ZAUDĒ JAŅOS";
-      } else {
-        payEachSigned = -4;
-        status = "ZAUDĒ";
-      }
+      if (bigTricks === 0) { payEachSigned = -8; status = "ZAUDĒ BEZTUKŠĀ"; }
+      else if (bigEyes <= 30) { payEachSigned = -6; status = "ZAUDĒ JAŅOS"; }
+      else { payEachSigned = -4; status = "ZAUDĒ"; }
     }
   }
 
@@ -1205,16 +1123,9 @@ function scoreTakeOrZole(room) {
       payEachSigned = -12;
       status = "ZAUDĒ";
     } else {
-      if (bigTricks === 8) {
-        payEachSigned = +14;
-        status = "UZVAR BEZTUKŠĀ";
-      } else if (bigEyes >= 91) {
-        payEachSigned = +12;
-        status = "UZVAR JAŅOS";
-      } else {
-        payEachSigned = +10;
-        status = "UZVAR";
-      }
+      if (bigTricks === 8) { payEachSigned = +14; status = "UZVAR BEZTUKŠĀ"; }
+      else if (bigEyes >= 91) { payEachSigned = +12; status = "UZVAR JAŅOS"; }
+      else { payEachSigned = +10; status = "UZVAR"; }
     }
   }
 
@@ -1239,14 +1150,14 @@ function scoreTakeOrZole(room) {
     oppTricks,
     talonEyes,
     discardEyes,
-    names
+    names,
   };
 
   finishHandToLobby(room, res, "HAND_FINISHED");
 }
 
 /* ============================
-   SCORE — MAZĀ  (Bugats tabula)
+   SCORE — MAZĀ
    ============================ */
 function scoreMaza(room, reason) {
   const snap = snapshotSeatPts(room);
@@ -1275,7 +1186,7 @@ function scoreMaza(room, reason) {
     payEach: payEachSigned,
     bigTricks,
     reason: reason || "END",
-    names
+    names,
   };
 
   finishHandToLobby(room, res, "HAND_FINISHED");
@@ -1343,7 +1254,7 @@ function scoreGalds(room) {
     winnerSeat,
     galdsPay: GALDS_PAY,
     note,
-    names
+    names,
   };
 
   finishHandToLobby(room, res, "HAND_FINISHED");
@@ -1373,7 +1284,7 @@ function publicPlayers(room) {
     avatarUrl: p.avatarUrl,
     ready: p.ready,
     connected: p.connected,
-    matchPts: typeof p.matchPts === "number" ? p.matchPts : START_PTS
+    matchPts: typeof p.matchPts === "number" ? p.matchPts : START_PTS,
   }));
 }
 
@@ -1391,7 +1302,7 @@ function sanitizeStateForSeat(room, seat) {
       ? {
           serverCommit: room.fairness.serverCommit,
           serverReveal: room.fairness.serverReveal,
-          combinedHash: room.fairness.combinedHash
+          combinedHash: room.fairness.combinedHash,
         }
       : null,
 
@@ -1407,7 +1318,7 @@ function sanitizeStateForSeat(room, seat) {
       galdsPay: GALDS_PAY,
       galdsLoserPts: -(GALDS_PAY * 2),
       galdsSplitLoserPts: -GALDS_PAY,
-      startPts: START_PTS
+      startPts: START_PTS,
     },
 
     leaderSeat: room.leaderSeat,
@@ -1425,10 +1336,10 @@ function sanitizeStateForSeat(room, seat) {
 
     meta: {
       handSizes: room.hands.map((h) => h.length),
-      takenTricks: room.taken.map((t) => trickCount(t))
+      takenTricks: room.taken.map((t) => trickCount(t)),
     },
 
-    lastResult: room.lastResult
+    lastResult: room.lastResult,
   };
 }
 
@@ -1443,7 +1354,7 @@ function emitRoom(room, extra) {
   }
 
   broadcastRoomsUpdate();
-  scheduleAutoStart(room, "emitRoom");
+  scheduleAutoStart(room);
 }
 
 /* ============================
@@ -1454,15 +1365,9 @@ io.on("connection", (socket) => {
 
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
+    try { ack?.({ ok: true }); } catch {}
     try {
-      ack?.({ ok: true });
-    } catch {}
-    try {
-      socket.emit("rooms:update", {
-        ok: true,
-        rooms: listPublicRooms(),
-        ts: Date.now()
-      });
+      socket.emit("rooms:update", { ok: true, rooms: listPublicRooms(), ts: Date.now() });
     } catch {}
   });
 
@@ -1470,9 +1375,7 @@ io.on("connection", (socket) => {
     ack?.({ ok: true, rooms: listPublicRooms(), ts: Date.now() });
   });
 
-  // Leaderboard pull (TOP10) — saderīgs ar abiem parakstiem:
-  // 1) emit("leaderboard:top10", cb)
-  // 2) emit("leaderboard:top10", payload, cb)
+  // leaderboard:top10 — saderīgs ar cb-only un payload+cb
   socket.on("leaderboard:top10", (a, b) => {
     const ack = typeof a === "function" ? a : (typeof b === "function" ? b : null);
     try {
@@ -1507,12 +1410,8 @@ io.on("connection", (socket) => {
       if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
-      const wasRejoin =
-        room.players[seat].username === username && !room.players[seat].connected;
-
-      if (!wasRejoin) {
-        room.players[seat].matchPts = getUserPts(room, username);
-      }
+      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+      if (!wasRejoin) room.players[seat].matchPts = getUserPts(room, username);
 
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
@@ -1522,9 +1421,7 @@ io.on("connection", (socket) => {
       room.players[seat].socketId = socket.id;
 
       room.players[seat].seed =
-        clientSeed ||
-        room.players[seat].seed ||
-        crypto.randomBytes(8).toString("hex");
+        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
 
       setUserPts(room, username, room.players[seat].matchPts);
 
@@ -1559,12 +1456,8 @@ io.on("connection", (socket) => {
       if (seat === -2) return ack?.({ ok: false, error: "DUPLICATE_NICK" });
       if (seat === -1) return ack?.({ ok: false, error: "ROOM_FULL" });
 
-      const wasRejoin =
-        room.players[seat].username === username && !room.players[seat].connected;
-
-      if (!wasRejoin) {
-        room.players[seat].matchPts = getUserPts(room, username);
-      }
+      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+      if (!wasRejoin) room.players[seat].matchPts = getUserPts(room, username);
 
       room.players[seat].username = username;
       room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
@@ -1574,9 +1467,7 @@ io.on("connection", (socket) => {
       room.players[seat].socketId = socket.id;
 
       room.players[seat].seed =
-        clientSeed ||
-        room.players[seat].seed ||
-        crypto.randomBytes(8).toString("hex");
+        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
 
       setUserPts(room, username, room.players[seat].matchPts);
 
@@ -1615,7 +1506,7 @@ io.on("connection", (socket) => {
         connected: false,
         socketId: null,
         seed: null,
-        matchPts: START_PTS
+        matchPts: START_PTS,
       };
 
       if (leavingMidHand) {
@@ -1623,7 +1514,7 @@ io.on("connection", (socket) => {
           ts: Date.now(),
           handNo: room.handNo,
           contract: room.contract || null,
-          note: "ABORTED_PLAYER_LEFT"
+          note: "ABORTED_PLAYER_LEFT",
         };
         room.phase = "LOBBY";
         resetHandState(room);
@@ -1671,8 +1562,7 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number")
-      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     const ready = !!payload?.ready;
     room.players[seat].ready = ready;
@@ -1685,8 +1575,7 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number")
-      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
@@ -1698,16 +1587,9 @@ io.on("connection", (socket) => {
     }
 
     let bidRaw = String(payload?.bid || "").toUpperCase().trim();
-
     if (bidRaw === "PASS") bidRaw = "GARĀM";
     if (bidRaw === "TAKE") bidRaw = "ŅEMT GALDU";
-
-    if (
-      bidRaw === "MAZA_ZOLE" ||
-      bidRaw === "MAZA ZOLE" ||
-      bidRaw === "MAZA" ||
-      bidRaw === "MAZĀ ZOLE"
-    ) {
+    if (bidRaw === "MAZA_ZOLE" || bidRaw === "MAZA ZOLE" || bidRaw === "MAZA" || bidRaw === "MAZĀ ZOLE") {
       bidRaw = "MAZĀ";
     }
 
@@ -1773,8 +1655,7 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number")
-      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "DISCARD") return ack?.({ ok: false, error: "NOT_DISCARD" });
     if (room.bigSeat !== seat) return ack?.({ ok: false, error: "NOT_BIG" });
@@ -1808,8 +1689,7 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
-    if (!room || typeof seat !== "number")
-      return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "PLAY") return ack?.({ ok: false, error: "NOT_PLAY" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
@@ -1821,9 +1701,7 @@ io.on("connection", (socket) => {
     const idx = hand.findIndex((h) => sameCard(h, c));
     if (idx === -1) return ack?.({ ok: false, error: "NOT_IN_HAND" });
 
-    const follow = room.trickPlays.length
-      ? leadFollow(room, room.trickPlays[0].card)
-      : null;
+    const follow = room.trickPlays.length ? leadFollow(room, room.trickPlays[0].card) : null;
     if (!isLegalPlay(hand, follow, c, room)) return ack?.({ ok: false, error: "ILLEGAL" });
 
     const played = hand.splice(idx, 1)[0];
@@ -1861,8 +1739,7 @@ io.on("connection", (socket) => {
     const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
     if (!allHandsEmpty) return;
 
-    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE)
-      return scoreTakeOrZole(room);
+    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
     if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
     if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
 
@@ -1879,7 +1756,6 @@ io.on("connection", (socket) => {
 
       room.players[seat].connected = false;
       room.players[seat].socketId = null;
-
       room.players[seat].ready = false;
 
       emitRoom(room, { note: "DISCONNECT" });
@@ -1909,15 +1785,11 @@ function normalizeCard(x) {
 
 // drošības: saglabā leaderboard uz exit
 process.on("SIGINT", () => {
-  try {
-    lbSave();
-  } catch {}
+  try { lbSave(); } catch {}
   process.exit(0);
 });
 process.on("SIGTERM", () => {
-  try {
-    lbSave();
-  } catch {}
+  try { lbSave(); } catch {}
   process.exit(0);
 });
 
@@ -1927,8 +1799,6 @@ server.listen(PORT, () => {
   console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
   console.log(`[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
   console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
-  console.log(
-    `[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`
-  );
+  console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
   console.log(`[zole] LEADERBOARD: ${LB_PATH}`);
 });
