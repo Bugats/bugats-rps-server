@@ -1322,12 +1322,14 @@ function scoreGalds(room) {
   const tricks = room.taken.map((t) => trickCount(t));
   const eyes = room.taken.map((t) => sumEyes(t));
 
-  const maxTr = Math.max(...tricks);
-  let losers = [0, 1, 2].filter((s) => tricks[s] === maxTr);
+  // GALDIŅŠ (visi garām) — pēc acīm
+  const maxEyes = Math.max(...eyes);
+  let losers = [0, 1, 2].filter((s) => eyes[s] === maxEyes);
 
   if (losers.length > 1) {
-    const maxEyesAmong = Math.max(...losers.map((s) => eyes[s]));
-    losers = losers.filter((s) => eyes[s] === maxEyesAmong);
+    // tiebreak: pēc stiķiem (kam vairāk stiķu, tas "zaudē")
+    const maxTrAmong = Math.max(...losers.map((s) => tricks[s]));
+    losers = losers.filter((s) => tricks[s] === maxTrAmong);
   }
 
   const deltas = [0, 0, 0];
@@ -1339,7 +1341,7 @@ function scoreGalds(room) {
     deltas[L] = -2 * GALDS_PAY;
     for (let s = 0; s < 3; s++) if (s !== L) deltas[s] = +GALDS_PAY;
     loserSeats = [L];
-    note = `GALDS: loser=seat${L}`;
+    note = `GALDS: loser=seat${L} (by eyes)`;
   } else if (losers.length === 2) {
     const [a, b] = losers;
     deltas[a] = -GALDS_PAY;
@@ -1347,9 +1349,9 @@ function scoreGalds(room) {
     const w = [0, 1, 2].find((s) => s !== a && s !== b);
     deltas[w] = +2 * GALDS_PAY;
     loserSeats = [a, b];
-    note = `GALDS: split losers seat${a}&seat${b}`;
+    note = `GALDS: split losers seat${a}&seat${b} (by eyes)`;
   } else {
-    note = `GALDS: all equal`;
+    note = `GALDS: all equal (by eyes)`;
   }
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
