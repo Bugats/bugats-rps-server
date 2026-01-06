@@ -1486,6 +1486,55 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
+  function getTokenFromSocket(s) {
+    try {
+      const t1 = s?.handshake?.auth?.token;
+      if (t1 && typeof t1 === "string") return t1.trim();
+
+      const authz = String(s?.handshake?.headers?.authorization || "").trim();
+      if (authz) {
+        const m = authz.match(/^Bearer\s+(.+)$/i);
+        if (m && m[1]) return m[1].trim();
+      }
+
+      const cookie = String(s?.handshake?.headers?.cookie || "");
+      const cookies = parseCookies(cookie);
+      return String(
+        cookies[COOKIE_NAME] || cookies.token || cookies.auth_token || ""
+      ).trim();
+    } catch {
+      return "";
+    }
+  }
+
+  function authUserFromSocket(s) {
+    const token = getTokenFromSocket(s);
+    if (!token) return { ok: false };
+    const v = verifyToken(token);
+    if (!v.ok) return { ok: false };
+
+    const username = safeUsername(v.payload?.username || "");
+    if (!username) return { ok: false };
+
+    // user must exist (public production)
+    const u = userGet(username);
+    if (!u) return { ok: false };
+
+    const avatarUrl =
+      safeAvatarUrl(u.avatarUrl || "") || safeAvatarUrl(v.payload?.avatarUrl || "");
+
+    return { ok: true, username, avatarUrl, token };
+  }
+
+  // cache auth on socket (best-effort; may be missing if cookies blocked)
+  try {
+    const a = authUserFromSocket(socket);
+    if (a.ok) {
+      socket.data.username = a.username;
+      socket.data.avatarUrl = a.avatarUrl || "";
+    }
+  } catch {}
+
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
     try { ack?.({ ok: true }); } catch {}
@@ -1520,8 +1569,13 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      const a = authUserFromSocket(socket);
+      if (IS_PROD && !a.ok) return ack?.({ ok: false, error: "UNAUTHORIZED" });
+
+      const username = a.ok ? a.username : safeUsername(payload?.username);
+      const avatarUrl = a.ok
+        ? (safeAvatarUrl(payload?.avatarUrl) || a.avatarUrl || "")
+        : safeAvatarUrl(payload?.avatarUrl);
       const clientSeed = String(payload?.seed || "").trim();
 
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
@@ -1554,6 +1608,8 @@ io.on("connection", (socket) => {
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
       socket.data.seat = seat;
+      socket.data.username = username;
+      socket.data.avatarUrl = avatarUrl || "";
 
       ack?.({ ok: true, roomId: room.roomId, seat });
       emitRoom(room, { note: "JOIN" });
@@ -1564,8 +1620,13 @@ io.on("connection", (socket) => {
 
   socket.on("room:join", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      const a = authUserFromSocket(socket);
+      if (IS_PROD && !a.ok) return ack?.({ ok: false, error: "UNAUTHORIZED" });
+
+      const username = a.ok ? a.username : safeUsername(payload?.username);
+      const avatarUrl = a.ok
+        ? (safeAvatarUrl(payload?.avatarUrl) || a.avatarUrl || "")
+        : safeAvatarUrl(payload?.avatarUrl);
       const clientSeed = String(payload?.seed || "").trim();
 
       const roomId = normRoomId(payload?.roomId);
@@ -1600,6 +1661,8 @@ io.on("connection", (socket) => {
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
       socket.data.seat = seat;
+      socket.data.username = username;
+      socket.data.avatarUrl = avatarUrl || "";
 
       ack?.({ ok: true, roomId: room.roomId, seat });
       emitRoom(room, { note: "JOIN" });
@@ -1654,14 +1717,46 @@ io.on("connection", (socket) => {
     socket.leave(roomId || "");
     socket.data.roomId = null;
     socket.data.seat = null;
+    socket.data.username = null;
+    socket.data.avatarUrl = null;
     ack?.({ ok: true });
   });
+
+  function requireSeatOwner(room, seat, ack) {
+    try {
+      if (!room || typeof seat !== "number") return false;
+      const sp = room.players?.[seat];
+      if (!sp) return false;
+
+      // strongest check: socketId ownership
+      if (sp.socketId && sp.socketId !== socket.id) {
+        try { ack?.({ ok: false, error: "NOT_OWNER" }); } catch {}
+        return false;
+      }
+
+      // production: require authenticated identity to match seat username
+      if (IS_PROD) {
+        const su = safeUsername(socket.data?.username || "");
+        const pu = safeUsername(sp.username || "");
+        if (!su || !pu || su !== pu) {
+          try { ack?.({ ok: false, error: "UNAUTHORIZED" }); } catch {}
+          return false;
+        }
+      }
+
+      return true;
+    } catch {
+      try { ack?.({ ok: false, error: "UNAUTHORIZED" }); } catch {}
+      return false;
+    }
+  }
 
   function setSeed(seedRaw) {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return;
+    if (!requireSeatOwner(room, seat, null)) return;
 
     if (room.deck && room.deck.length) return;
 
@@ -1686,6 +1781,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     const ready = !!payload?.ready;
     room.players[seat].ready = ready;
@@ -1699,6 +1795,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
@@ -1779,6 +1876,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     if (room.phase !== "DISCARD") return ack?.({ ok: false, error: "NOT_DISCARD" });
     if (room.bigSeat !== seat) return ack?.({ ok: false, error: "NOT_BIG" });
@@ -1813,6 +1911,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     if (room.phase !== "PLAY") return ack?.({ ok: false, error: "NOT_PLAY" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
