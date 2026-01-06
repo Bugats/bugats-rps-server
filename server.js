@@ -7,19 +7,37 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
 
 const PORT = process.env.PORT || 10080;
+const NODE_ENV = String(process.env.NODE_ENV || "development").toLowerCase();
+const IS_PROD = NODE_ENV === "production";
+
+/* ============================
+   PROD safety checks
+   ============================ */
+const AUTH_SECRET = String(process.env.AUTH_SECRET || process.env.JWT_SECRET || "");
+if (IS_PROD) {
+  // 32+ chars is a pragmatic minimum for HMAC secrets
+  if (!AUTH_SECRET || AUTH_SECRET.length < 32) {
+    throw new Error(
+      "[zole] Missing/weak AUTH_SECRET (or JWT_SECRET). Refusing to start in production."
+    );
+  }
+}
 
 /* ============================
    COOKIE AUTH (lai /me strādā ar credentials:include)
    ============================ */
 const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "zole_token";
-const COOKIE_SECURE = String(process.env.COOKIE_SECURE || "1") !== "0"; // prod: 1
-const COOKIE_SAMESITE = process.env.COOKIE_SAMESITE || "None"; // cross-site: None
+const COOKIE_SECURE_DEFAULT = IS_PROD ? "1" : "0";
+const COOKIE_SECURE = String(process.env.COOKIE_SECURE || COOKIE_SECURE_DEFAULT) !== "0";
+const COOKIE_SAMESITE = process.env.COOKIE_SAMESITE || "Lax"; // cross-site: None (only with Secure)
 const COOKIE_MAX_AGE_SEC = Math.max(
   60,
   Math.min(
@@ -30,6 +48,10 @@ const COOKIE_MAX_AGE_SEC = Math.max(
     ) || (60 * 60 * 24 * 30)
   )
 );
+
+if (IS_PROD && String(COOKIE_SAMESITE).toLowerCase() === "none" && !COOKIE_SECURE) {
+  throw new Error("[zole] COOKIE_SAMESITE=None requires COOKIE_SECURE=1 in production.");
+}
 
 function parseCookies(header) {
   const out = Object.create(null);
@@ -126,13 +148,90 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-const corsOptions = CORS_ORIGINS.length
-  ? { origin: CORS_ORIGINS, credentials: true }
-  : { origin: true, credentials: true };
+if (IS_PROD && CORS_ORIGINS.length === 0) {
+  throw new Error(
+    "[zole] CORS_ORIGINS must be set in production (comma-separated list of allowed origins)."
+  );
+}
+
+const CORS_SET = new Set(CORS_ORIGINS);
+function isCorsOriginAllowed(origin) {
+  if (!origin) return true; // non-browser clients / same-origin without Origin header
+  if (!IS_PROD && CORS_SET.size === 0) return true; // dev convenience
+  return CORS_SET.has(origin);
+}
+
+const corsOptions = {
+  origin(origin, cb) {
+    try {
+      if (isCorsOriginAllowed(origin)) return cb(null, true);
+      return cb(new Error("CORS_NOT_ALLOWED"), false);
+    } catch (e) {
+      return cb(e, false);
+    }
+  },
+  credentials: true,
+};
 
 const app = express();
+app.disable("x-powered-by");
+if (IS_PROD) app.set("trust proxy", 1);
+
+app.use(
+  helmet({
+    // API server; keep defaults but avoid issues with cross-origin integrations
+    crossOriginEmbedderPolicy: false,
+  })
+);
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "256kb" }));
+
+/* ============================
+   CSRF-ish guard (Origin/Referer allowlist)
+   - Blocks cross-site form POSTs (not covered by CORS)
+   ============================ */
+function reqOriginFromHeaders(req) {
+  const origin = String(req.headers.origin || "").trim();
+  if (origin) return origin;
+
+  const ref = String(req.headers.referer || "").trim();
+  if (!ref) return "";
+  try {
+    return new URL(ref).origin;
+  } catch {
+    return "";
+  }
+}
+
+function reqOwnOrigin(req) {
+  // requires trust proxy for correct protocol behind reverse proxy
+  try {
+    const proto = req.protocol || "http";
+    const host = req.get("host");
+    if (!host) return "";
+    return `${proto}://${host}`;
+  } catch {
+    return "";
+  }
+}
+
+function isUnsafeMethod(m) {
+  return m === "POST" || m === "PUT" || m === "PATCH" || m === "DELETE";
+}
+
+app.use((req, res, next) => {
+  if (!isUnsafeMethod(req.method)) return next();
+
+  const o = reqOriginFromHeaders(req);
+  if (!o) return next(); // allow non-browser clients
+
+  // always allow same-origin
+  const own = reqOwnOrigin(req);
+  if (own && o === own) return next();
+
+  if (isCorsOriginAllowed(o)) return next();
+  return res.status(403).json({ ok: false, error: "CSRF_BLOCKED" });
+});
 
 app.get("/", (_req, res) => res.send("OK"));
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -143,23 +242,38 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 const DATA_DIR = path.join(__dirname, "data");
 const LB_PATH = path.join(DATA_DIR, "zole_leaderboard.json");
 
+const _loggedOnce = new Set();
+function logOnce(key, err) {
+  const k = String(key || "");
+  if (_loggedOnce.has(k)) return;
+  _loggedOnce.add(k);
+  try {
+    console.error(`[zole] ${k}`, err);
+  } catch {}
+}
+
 function ensureDir(p) {
   try {
     fs.mkdirSync(p, { recursive: true });
-  } catch {}
+  } catch (e) {
+    logOnce(`ensureDir failed: ${p}`, e);
+  }
 }
 function readJson(file, fallback) {
   try {
     if (!fs.existsSync(file)) return fallback;
     return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
+  } catch (e) {
+    logOnce(`readJson failed: ${file}`, e);
     return fallback;
   }
 }
 function writeJson(file, obj) {
   try {
     fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
-  } catch {}
+  } catch (e) {
+    logOnce(`writeJson failed: ${file}`, e);
+  }
 }
 
 ensureDir(DATA_DIR);
@@ -327,10 +441,7 @@ function b64urlDecodeToUtf8(s) {
 }
 
 function signToken(payload) {
-  const secret =
-    process.env.AUTH_SECRET ||
-    process.env.JWT_SECRET ||
-    "ZOLE_AUTH_SECRET_CHANGE_ME";
+  const secret = AUTH_SECRET || "DEV_ONLY_ZOLE_AUTH_SECRET_CHANGE_ME";
 
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
@@ -352,10 +463,7 @@ function signToken(payload) {
 
 function verifyToken(token) {
   try {
-    const secret =
-      process.env.AUTH_SECRET ||
-      process.env.JWT_SECRET ||
-      "ZOLE_AUTH_SECRET_CHANGE_ME";
+    const secret = AUTH_SECRET || "DEV_ONLY_ZOLE_AUTH_SECRET_CHANGE_ME";
 
     const t = String(token || "");
     const parts = t.split(".");
@@ -437,7 +545,22 @@ const LOGIN_ROUTES = [
   "/signin", "/api/signin", "/auth/signin", "/api/auth/signin",
 ];
 
-app.post(SIGNUP_ROUTES, (req, res) => {
+const authLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: IS_PROD ? 50 : 0, // 0 = no limit (dev)
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+
+// Separate limiter for login to slow brute-force
+const loginLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: IS_PROD ? 30 : 0,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+
+app.post(SIGNUP_ROUTES, authLimiter, (req, res) => {
   const username = safeUsernameAuth(req.body?.username);
   const password = String(req.body?.password || "");
   const avatarUrl = safeAvatarUrlAuth(req.body?.avatarUrl);
@@ -460,7 +583,7 @@ app.post(SIGNUP_ROUTES, (req, res) => {
   return authResponse(res, user);
 });
 
-app.post(LOGIN_ROUTES, (req, res) => {
+app.post(LOGIN_ROUTES, loginLimiter, (req, res) => {
   const username = safeUsernameAuth(req.body?.username);
   const password = String(req.body?.password || "");
 
@@ -522,7 +645,7 @@ app.get(["/me", "/auth/me", "/api/me", "/api/auth/me"], (req, res) => {
    ============================ */
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: corsOptions.origin, credentials: true },
+  cors: { origin: CORS_ORIGINS.length ? CORS_ORIGINS : corsOptions.origin, credentials: true },
 });
 
 function broadcastLeaderboardUpdate() {
@@ -1199,12 +1322,14 @@ function scoreGalds(room) {
   const tricks = room.taken.map((t) => trickCount(t));
   const eyes = room.taken.map((t) => sumEyes(t));
 
-  const maxTr = Math.max(...tricks);
-  let losers = [0, 1, 2].filter((s) => tricks[s] === maxTr);
+  // GALDIŅŠ (visi garām) — pēc acīm
+  const maxEyes = Math.max(...eyes);
+  let losers = [0, 1, 2].filter((s) => eyes[s] === maxEyes);
 
   if (losers.length > 1) {
-    const maxEyesAmong = Math.max(...losers.map((s) => eyes[s]));
-    losers = losers.filter((s) => eyes[s] === maxEyesAmong);
+    // tiebreak: pēc stiķiem (kam vairāk stiķu, tas "zaudē")
+    const maxTrAmong = Math.max(...losers.map((s) => tricks[s]));
+    losers = losers.filter((s) => tricks[s] === maxTrAmong);
   }
 
   const deltas = [0, 0, 0];
@@ -1216,7 +1341,7 @@ function scoreGalds(room) {
     deltas[L] = -2 * GALDS_PAY;
     for (let s = 0; s < 3; s++) if (s !== L) deltas[s] = +GALDS_PAY;
     loserSeats = [L];
-    note = `GALDS: loser=seat${L}`;
+    note = `GALDS: loser=seat${L} (by eyes)`;
   } else if (losers.length === 2) {
     const [a, b] = losers;
     deltas[a] = -GALDS_PAY;
@@ -1224,9 +1349,9 @@ function scoreGalds(room) {
     const w = [0, 1, 2].find((s) => s !== a && s !== b);
     deltas[w] = +2 * GALDS_PAY;
     loserSeats = [a, b];
-    note = `GALDS: split losers seat${a}&seat${b}`;
+    note = `GALDS: split losers seat${a}&seat${b} (by eyes)`;
   } else {
-    note = `GALDS: all equal`;
+    note = `GALDS: all equal (by eyes)`;
   }
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
@@ -1363,6 +1488,55 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
+  function getTokenFromSocket(s) {
+    try {
+      const t1 = s?.handshake?.auth?.token;
+      if (t1 && typeof t1 === "string") return t1.trim();
+
+      const authz = String(s?.handshake?.headers?.authorization || "").trim();
+      if (authz) {
+        const m = authz.match(/^Bearer\s+(.+)$/i);
+        if (m && m[1]) return m[1].trim();
+      }
+
+      const cookie = String(s?.handshake?.headers?.cookie || "");
+      const cookies = parseCookies(cookie);
+      return String(
+        cookies[COOKIE_NAME] || cookies.token || cookies.auth_token || ""
+      ).trim();
+    } catch {
+      return "";
+    }
+  }
+
+  function authUserFromSocket(s) {
+    const token = getTokenFromSocket(s);
+    if (!token) return { ok: false };
+    const v = verifyToken(token);
+    if (!v.ok) return { ok: false };
+
+    const username = safeUsername(v.payload?.username || "");
+    if (!username) return { ok: false };
+
+    // user must exist (public production)
+    const u = userGet(username);
+    if (!u) return { ok: false };
+
+    const avatarUrl =
+      safeAvatarUrl(u.avatarUrl || "") || safeAvatarUrl(v.payload?.avatarUrl || "");
+
+    return { ok: true, username, avatarUrl, token };
+  }
+
+  // cache auth on socket (best-effort; may be missing if cookies blocked)
+  try {
+    const a = authUserFromSocket(socket);
+    if (a.ok) {
+      socket.data.username = a.username;
+      socket.data.avatarUrl = a.avatarUrl || "";
+    }
+  } catch {}
+
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
     try { ack?.({ ok: true }); } catch {}
@@ -1397,8 +1571,13 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      const a = authUserFromSocket(socket);
+      if (IS_PROD && !a.ok) return ack?.({ ok: false, error: "UNAUTHORIZED" });
+
+      const username = a.ok ? a.username : safeUsername(payload?.username);
+      const avatarUrl = a.ok
+        ? (safeAvatarUrl(payload?.avatarUrl) || a.avatarUrl || "")
+        : safeAvatarUrl(payload?.avatarUrl);
       const clientSeed = String(payload?.seed || "").trim();
 
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
@@ -1431,6 +1610,8 @@ io.on("connection", (socket) => {
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
       socket.data.seat = seat;
+      socket.data.username = username;
+      socket.data.avatarUrl = avatarUrl || "";
 
       ack?.({ ok: true, roomId: room.roomId, seat });
       emitRoom(room, { note: "JOIN" });
@@ -1441,8 +1622,13 @@ io.on("connection", (socket) => {
 
   socket.on("room:join", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      const a = authUserFromSocket(socket);
+      if (IS_PROD && !a.ok) return ack?.({ ok: false, error: "UNAUTHORIZED" });
+
+      const username = a.ok ? a.username : safeUsername(payload?.username);
+      const avatarUrl = a.ok
+        ? (safeAvatarUrl(payload?.avatarUrl) || a.avatarUrl || "")
+        : safeAvatarUrl(payload?.avatarUrl);
       const clientSeed = String(payload?.seed || "").trim();
 
       const roomId = normRoomId(payload?.roomId);
@@ -1477,6 +1663,8 @@ io.on("connection", (socket) => {
       socket.join(room.roomId);
       socket.data.roomId = room.roomId;
       socket.data.seat = seat;
+      socket.data.username = username;
+      socket.data.avatarUrl = avatarUrl || "";
 
       ack?.({ ok: true, roomId: room.roomId, seat });
       emitRoom(room, { note: "JOIN" });
@@ -1531,14 +1719,46 @@ io.on("connection", (socket) => {
     socket.leave(roomId || "");
     socket.data.roomId = null;
     socket.data.seat = null;
+    socket.data.username = null;
+    socket.data.avatarUrl = null;
     ack?.({ ok: true });
   });
+
+  function requireSeatOwner(room, seat, ack) {
+    try {
+      if (!room || typeof seat !== "number") return false;
+      const sp = room.players?.[seat];
+      if (!sp) return false;
+
+      // strongest check: socketId ownership
+      if (sp.socketId && sp.socketId !== socket.id) {
+        try { ack?.({ ok: false, error: "NOT_OWNER" }); } catch {}
+        return false;
+      }
+
+      // production: require authenticated identity to match seat username
+      if (IS_PROD) {
+        const su = safeUsername(socket.data?.username || "");
+        const pu = safeUsername(sp.username || "");
+        if (!su || !pu || su !== pu) {
+          try { ack?.({ ok: false, error: "UNAUTHORIZED" }); } catch {}
+          return false;
+        }
+      }
+
+      return true;
+    } catch {
+      try { ack?.({ ok: false, error: "UNAUTHORIZED" }); } catch {}
+      return false;
+    }
+  }
 
   function setSeed(seedRaw) {
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return;
+    if (!requireSeatOwner(room, seat, null)) return;
 
     if (room.deck && room.deck.length) return;
 
@@ -1563,6 +1783,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     const ready = !!payload?.ready;
     room.players[seat].ready = ready;
@@ -1576,6 +1797,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     if (room.phase !== "BIDDING") return ack?.({ ok: false, error: "NOT_BIDDING" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
@@ -1656,6 +1878,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     if (room.phase !== "DISCARD") return ack?.({ ok: false, error: "NOT_DISCARD" });
     if (room.bigSeat !== seat) return ack?.({ ok: false, error: "NOT_BIG" });
@@ -1690,6 +1913,7 @@ io.on("connection", (socket) => {
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+    if (!requireSeatOwner(room, seat, ack)) return;
 
     if (room.phase !== "PLAY") return ack?.({ ok: false, error: "NOT_PLAY" });
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
