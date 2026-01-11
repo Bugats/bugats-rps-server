@@ -984,6 +984,42 @@ body.zl-game #felt.zg-felt{
   }
 }
 
+/* status čips */
+.zg-status{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(238,242,255,0.92);
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(760px, 62vw);
+}
+
+/* izcelt gājienu/lielo uz seat kartītēm */
+.zg-seat.zg-seat-turn{
+  outline: 2px solid rgba(210,164,23,0.70);
+  outline-offset: 2px;
+}
+.zg-seat.zg-seat-big{
+  outline: 2px solid rgba(57,217,138,0.60);
+  outline-offset: 2px;
+}
+
+/* Rokas kāršu izmērs/overlap no JS mainīgajiem */
+#zgBottomStack #hand .zg-cardbtn{
+  width: var(--card-w, 120px) !important;
+}
+#zgBottomStack #hand .zg-cardbtn + .zg-cardbtn{
+  margin-left: calc(-1 * var(--overlap, 60px)) !important;
+}
+
 /* Košākas kārtis (cipari/masti/figūras) */
 .zg-card.zg-pretty{
   background: linear-gradient(180deg, #ffffff 0%, #f7fbff 60%, #eef4ff 100%) !important;

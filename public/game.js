@@ -29,6 +29,7 @@ safeText(roomLabelEl, ROOM_ID);
 
 const connDot = $("#connDot");
 const connLabel = $("#connLabel");
+const statusChip = $("#statusChip");
 
 const seatLeft = $("#seatLeft");
 const seatRight = $("#seatRight");
@@ -971,16 +972,36 @@ function renderPlayerCard(p, whereLabel) {
   const ready =
     roomState?.phase === "LOBBY" && p.ready ? `<span class="zg-badge zg-badge-on">READY</span>` : "";
 
+  const c = roomState?.contract;
+  const big = roomState?.bigSeat;
+  const role =
+    typeof big === "number" && !isGaldinsContract(c)
+      ? p.seat === big
+        ? "LIELAIS"
+        : "MAZAIS"
+      : "";
+  const roleBadge = role ? `<span class="zg-badge">${escapeHtml(role)}</span>` : "";
+
+  const contractBadge =
+    typeof big === "number" && p.seat === big && c
+      ? `<span class="zg-badge">${escapeHtml(contractLabel(c))}</span>`
+      : "";
+
+  const act = seatActionLabel(p.seat);
+  const actBadge = act ? `<span class="zg-badge zg-badge-on">${escapeHtml(act)}</span>` : "";
+
   const backs = Array.from({ length: Math.min(8, cardsLeft) })
     .map(() => `<span class="zg-back"></span>`)
     .join("");
+
+  const badges = [roleBadge, contractBadge, actBadge, ready].filter(Boolean).join(" ");
 
   return `<div class="zg-seat-inner">
     <div class="zg-seat-topline">
       <div class="${avatarWrapCls}">${avatarInner}</div>
       <div class="zg-nameblock">
         <div class="zg-name">${escapeHtml(p.username)}</div>
-        <div class="zg-mini">PTS: ${escapeHtml(pts)} ${ready}</div>
+        <div class="zg-mini">PTS: ${escapeHtml(pts)}${badges ? " • " + badges : ""}</div>
       </div>
     </div>
     <div class="zg-backs">${backs}</div>
@@ -1174,6 +1195,39 @@ function renderHand() {
     handEl.style.setProperty("--hand-n", String(handSorted.length));
   } catch {}
 
+  // Dinamisks rokas izmērs/overlap, lai neiet ārā no ekrāna (PC + mobile)
+  try {
+    const isMobile =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(max-width: 720px)").matches
+        : false;
+
+    const n = Math.max(1, handSorted.length);
+    const rect = handEl.getBoundingClientRect();
+    const avail =
+      Math.max(
+        260,
+        Math.floor(rect?.width || 0) ||
+          (isMobile ? window.innerWidth - 24 : window.innerWidth - 80)
+      );
+
+    const base = isMobile ? 96 : 120;
+    const minW = isMobile ? 70 : 82;
+
+    const phaseNow = String(roomState.phase || "");
+    const ratio =
+      phaseNow === "DISCARD" ? (isMobile ? 0.72 : 0.62) : isMobile ? 0.60 : 0.50;
+
+    // cwFit nodrošina, ka n kartis ar overlap ietilpst avail
+    const denom = n - (n - 1) * ratio;
+    const cwFit = denom > 0 ? Math.floor(avail / denom) : base;
+    const cw = Math.max(minW, Math.min(base, cwFit));
+    const ov = Math.max(0, Math.floor(cw * ratio));
+
+    handEl.style.setProperty("--card-w", `${cw}px`);
+    handEl.style.setProperty("--overlap", `${ov}px`);
+  } catch {}
+
   const contract = contractLabel(roomState.contract);
   const phase = phaseLabel(roomState.phase);
   const tricks = roomState?.meta?.takenTricks?.[mySeat] ?? 0;
@@ -1361,6 +1415,35 @@ function renderAll() {
   if (seatLeft) seatLeft.innerHTML = renderPlayerCard(pL, "pretinieks");
   if (seatRight) seatRight.innerHTML = renderPlayerCard(pR, "pretinieks");
   if (seatBottom) seatBottom.innerHTML = renderPlayerCard(me, "tu");
+
+  // izcel gājienu / lielo uz seat kartītēm
+  try {
+    const turn = roomState?.turnSeat;
+    const big = roomState?.bigSeat;
+    seatLeft?.classList?.toggle("zg-seat-turn", turn === left);
+    seatRight?.classList?.toggle("zg-seat-turn", turn === right);
+    seatBottom?.classList?.toggle("zg-seat-turn", turn === mySeat);
+    seatLeft?.classList?.toggle("zg-seat-big", typeof big === "number" && big === left);
+    seatRight?.classList?.toggle("zg-seat-big", typeof big === "number" && big === right);
+    seatBottom?.classList?.toggle("zg-seat-big", typeof big === "number" && big === mySeat);
+  } catch {}
+
+  // status čips headerī (lai visi saprot kas notiek)
+  try {
+    if (statusChip) {
+      const ph = phaseLabel(roomState?.phase);
+      const c = contractLabel(roomState?.contract);
+      const bigSeat = roomState?.bigSeat;
+      const bigName = typeof bigSeat === "number" ? nameBySeat(bigSeat) : "—";
+      const turnName =
+        typeof roomState?.turnSeat === "number" ? nameBySeat(roomState.turnSeat) : "—";
+      const showContract = roomState?.phase !== "LOBBY";
+      statusChip.textContent =
+        showContract && c && c !== "—"
+          ? `${ph} • ${c} • LIELAIS: ${bigName} • GĀJIENS: ${turnName}`
+          : `${ph} • GĀJIENS: ${turnName}`;
+    }
+  } catch {}
 
   // 2 galda kārtis (talons): redzams tikai solīšanā
   try {
