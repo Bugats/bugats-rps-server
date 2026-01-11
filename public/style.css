@@ -1132,9 +1132,9 @@ body.zl-game #felt.zg-felt{
    ========================== */
 .zg-talon{
   position: absolute;
-  left: 50%;
-  top: 18%;
-  transform: translateX(-50%);
+  left: 14px;
+  top: 48%;
+  transform: translateY(-50%);
   z-index: 55; /* zem stiķa (60), virs galda */
   pointer-events: none;
   display: none; /* pēc noklusējuma slēpts, JS ieslēdz kad vajag */
@@ -1164,7 +1164,9 @@ body.zl-game #felt.zg-felt{
 @media (max-width: 720px){
   /* 2 galda kārtis pārvietojam zem header */
   .zg-talon{
-    top: 132px;
+    left: 10px;
+    top: 152px;
+    transform: none;
   }
   .zg-cardback{
     width: 56px;

@@ -1438,10 +1438,14 @@ function renderAll() {
       const turnName =
         typeof roomState?.turnSeat === "number" ? nameBySeat(roomState.turnSeat) : "—";
       const showContract = roomState?.phase !== "LOBBY";
-      statusChip.textContent =
-        showContract && c && c !== "—"
-          ? `${ph} • ${c} • LIELAIS: ${bigName} • GĀJIENS: ${turnName}`
-          : `${ph} • GĀJIENS: ${turnName}`;
+      if (showContract && isGaldinsContract(roomState?.contract)) {
+        statusChip.textContent = `${ph} • GALDIŅŠ (visi GARĀM) • GĀJIENS: ${turnName}`;
+      } else {
+        statusChip.textContent =
+          showContract && c && c !== "—"
+            ? `${ph} • ${c} • LIELAIS: ${bigName} • GĀJIENS: ${turnName}`
+            : `${ph} • GĀJIENS: ${turnName}`;
+      }
     }
   } catch {}
 
