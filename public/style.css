@@ -963,3 +963,70 @@ body.zl-game #felt.zg-felt{
 /* liekie uzraksti nost */
 #handInfo{ display: none !important; }
 #overlayNote{ display: none !important; }
+
+/* ==========================
+   MOBILE GAME LAYOUT (readable)
+   ========================== */
+@media (max-width: 720px){
+  body.zl-game{
+    padding: 8px;
+  }
+
+  /* topbar kompaktāks */
+  .zg-top{
+    margin-bottom: 8px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .zg-right{ gap: 8px; flex-wrap: wrap; }
+  .zg-brand{ display:none; } /* lieks uz maza ekrāna */
+
+  /* galds lai ietilpst ekrānā */
+  body.zl-game #felt.zg-felt{
+    width: 100% !important;
+    height: calc(100dvh - 140px) !important;
+    background-size: contain !important;
+    border-radius: 16px;
+  }
+
+  /* pretinieku kartītes mazākas */
+  .zg-seat{
+    width: 190px;
+    padding: 8px;
+    border-radius: 14px;
+  }
+  .zg-top-left{ top: 10px; left: 10px; }
+  .zg-top-right{ top: 10px; right: 10px; }
+
+  /* TU dock netraucē rokai */
+  #zgMeDock{
+    width: min(220px, 52vw);
+    left: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    opacity: 0.95;
+  }
+
+  /* stiķis centrā mazliet mazāks */
+  #trick{
+    width: min(520px, 96vw);
+    top: 46%;
+  }
+  .zg-slot{ width: 86px; height: 120px; }
+
+  /* roka: lielas kārtis + horizontāls scroll */
+  #zgBottomStack{
+    width: 96vw;
+    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+  }
+  #zgBottomStack #hand{
+    height: 170px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 10px 6px;
+    gap: 10px;
+  }
+  #zgBottomStack #hand .zg-cardbtn{
+    width: 96px;
+  }
+}

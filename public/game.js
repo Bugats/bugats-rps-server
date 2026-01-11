@@ -1566,9 +1566,12 @@ function leaveToLobby() {
 
 if (btnLeaveToLobby) btnLeaveToLobby.addEventListener("click", leaveToLobby);
 
+// IMPORTANT:
+// Ne-sūtam "room:leave" uz refresh/close, lai nepārtrauktu partiju pārējiem.
+// Atvienošanos serveris apstrādā ar "disconnect" un spēlētājs var pārlādēt lapu un atgriezties.
 window.addEventListener("beforeunload", () => {
   try {
-    if (socket && socket.connected) socket.emit("room:leave", {});
+    // neko nesūtām; ļaujam socketam vienkārši atvienoties
   } catch {}
 });
 
