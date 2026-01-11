@@ -112,6 +112,11 @@ const AUTO_NEXT_HAND_MS = Math.max(
   Math.min(20000, parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000)
 );
 
+// Dev/house-rule: atļaut "atmesties" (nepildīt mastu) izspēlē
+// 0 (default) = jāiet mastā (klasiskie noteikumi)
+// 1 = brīvā izspēle (var mest jebkuru kārti)
+const ALLOW_ATMESTIES = String(process.env.ALLOW_ATMESTIES || "0") === "1";
+
 // “Galda/Galdiņa” pamata likme
 const GALDS_PAY = Math.max(
   1,
@@ -640,6 +645,7 @@ function leadFollow(room, leadCard) {
 
 function hasFollow(hand, follow, room) {
   if (!follow) return false;
+  if (ALLOW_ATMESTIES) return false;
   const { trumps } = rulesForContract(room.contract);
 
   if (!trumps) return hand.some((c) => c.s === follow);
@@ -650,6 +656,7 @@ function hasFollow(hand, follow, room) {
 
 function isLegalPlay(hand, follow, c, room) {
   if (!follow) return true;
+  if (ALLOW_ATMESTIES) return true;
 
   const { trumps } = rulesForContract(room.contract);
 
@@ -1269,6 +1276,7 @@ function computeLegalForSeat(room, seat) {
   if (room.phase !== "PLAY") return [];
   if (room.turnSeat !== seat) return [];
   const hand = room.hands[seat] || [];
+  if (ALLOW_ATMESTIES) return hand.slice();
   if (room.trickPlays.length === 0) return hand.slice();
 
   const follow = leadFollow(room, room.trickPlays[0]?.card);
@@ -1324,6 +1332,7 @@ function sanitizeStateForSeat(room, seat) {
       galdsLoserPts: -(GALDS_PAY * 2),
       galdsSplitLoserPts: -GALDS_PAY,
       startPts: START_PTS,
+      allowAtmesties: ALLOW_ATMESTIES,
     },
 
     leaderSeat: room.leaderSeat,
