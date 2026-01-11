@@ -983,6 +983,7 @@ body.zl-game #felt.zg-felt{
     width: 128px !important;
     transform: translateY(-50%) !important;
     opacity: 0.88;
+    z-index: 40 !important; /* zem kārtīm/stiķa, lai nepārklāj */
   }
 }
 
@@ -1121,7 +1122,7 @@ body.zl-game #felt.zg-felt{
     left: 6px;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     opacity: 0.95;
-    z-index: 120; /* virs rokas, lai nav “zem kārtīm” */
+    z-index: 80; /* zem rokas, bet roka ir ar padding-left */
   }
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);
@@ -1164,7 +1165,7 @@ body.zl-game #felt.zg-felt{
     width: 118px !important;
     padding: 6px 6px 5px !important;
     border-radius: 10px !important;
-    z-index: 240 !important; /* zem header (250), virs galda */
+    z-index: 40 !important; /* zem kārtīm/stiķa, lai nepārklāj */
     transform: translateY(-50%) !important;
     opacity: 0.88;
   }
