@@ -9,7 +9,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
 
-    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./style.css?v=36" />
   </head>
 
   <body class="zl-body zl-lobby">
@@ -29,7 +29,7 @@
           <a
             id="btnBackAuth"
             class="zl-btn"
-            href="/auth.html"
+            href="https://thezone.lv/zole/auth.html"
             target="_top"
             rel="noopener"
             title="Atpakaļ uz login/reģistrāciju"
@@ -90,7 +90,7 @@
           <a
             id="btnChangeProfile"
             class="zl-btn"
-            href="/auth.html"
+            href="https://thezone.lv/zole/auth.html"
             target="_top"
             rel="noopener"
             title="Mainīt profilu"
@@ -157,7 +157,7 @@
       <footer class="zl-foot">thezone.lv • Zole</footer>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 
     <!-- Force “Atpakaļ/Mainīt profilu” strādāt arī iframe/WordPress embed gadījumā -->
     <script>
@@ -174,11 +174,11 @@
             }
           });
         }
-        bindTopNav("btnBackAuth", "/auth.html");
-        bindTopNav("btnChangeProfile", "/auth.html");
+        bindTopNav("btnBackAuth", "https://thezone.lv/zole/auth.html");
+        bindTopNav("btnChangeProfile", "https://thezone.lv/zole/auth.html");
       })();
     </script>
 
-    <script src="./app.js" defer></script>
+    <script src="./app.js?v=36" defer></script>
   </body>
 </html>

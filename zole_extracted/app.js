@@ -1,8 +1,9 @@
 "use strict";
 
-// Ja UI tiek servēts no tā paša servera (Render/Node), lietojam "same-origin"
-const API_BASE = "";
-const AUTH_URL = "/auth.html";
+const API_BASE = "https://thezone-zole-server.onrender.com";
+const SOCKET_URL = API_BASE;
+
+const AUTH_URL = "https://thezone.lv/zole/auth.html";
 
 const $ = (s) => document.querySelector(s);
 
@@ -219,12 +220,12 @@ function connectSocketAndSubscribe() {
     return;
   }
 
-  const token = localStorage.getItem("zole_token") || localStorage.getItem("token") || "";
-  socket = io({
-    transports: ["websocket"],
-    withCredentials: true,
-    auth: { token },
-  });
+const token = localStorage.getItem("zole_token") || localStorage.getItem("token") || "";
+socket = io(SOCKET_URL, {
+  transports: ["websocket"],
+  withCredentials: true,
+  auth: { token },
+});
 
   socket.on("connect", () => {
     try {
@@ -378,21 +379,20 @@ function createOrJoinRoom(isCreate) {
   }
 
   showErr("");
-  const avatarUrl = safeAvatar(avatarUrlEl?.value || prof.avatarUrl || "");
-  const roomId = normRoom(roomIdEl?.value || "");
-  if (!roomId) return showErr("Ievadi ROOM (piem., A1B2).");
-
-  localStorage.setItem(K_AVATAR, avatarUrl);
-  localStorage.setItem(K_LASTROOM, roomId);
-
-  let seed = localStorage.getItem(K_SEED) || "";
-  if (!seed) {
-    seed = seedGen();
-    localStorage.setItem(K_SEED, seed);
-  }
-
-  // Iekļaujam username, lai nebūtu NICK_REQUIRED pat bez cookie/token
-  const payload = { roomId, username: prof.username, avatarUrl, seed };
+const avatarUrl = safeAvatar(avatarUrlEl?.value || prof.avatarUrl || "");
+const roomId = normRoom(roomIdEl?.value || "");
+if (!roomId) return showErr("Ievadi ROOM (piem., A1B2).");
+ 
+localStorage.setItem(K_AVATAR, avatarUrl);
+localStorage.setItem(K_LASTROOM, roomId);
+ 
+let seed = localStorage.getItem(K_SEED) || "";
+if (!seed) {
+  seed = seedGen();
+  localStorage.setItem(K_SEED, seed);
+}
+ 
+const payload = { roomId, avatarUrl, seed };
 
   if (!socket || !socket.connected) {
     location.href = `./game.html?room=${encodeURIComponent(roomId)}`;

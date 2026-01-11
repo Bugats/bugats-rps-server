@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="lv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>ZOLE — spēle</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+
+  <body class="zl-body zl-game">
+    <div class="zl-wrap">
+      <header class="zg-top">
+        <div class="zg-left">
+          <div class="zg-brand">ZOLE</div>
+          <div class="zg-room">ROOM: <span id="roomLabel">—</span></div>
+        </div>
+
+        <div class="zg-right">
+          <div class="zg-conn">
+            <span id="connDot" class="zl-dot zl-dot-off"></span>
+            <span id="connLabel">Nav savienojuma</span>
+          </div>
+
+          <button
+            id="btnReadyToggle"
+            class="zg-ready"
+            title="READY (sāk jaunu partiju, kad visi 3 ir READY)"
+          >
+            READY: OFF
+          </button>
+
+          <button id="btnFullscreen" class="zg-btn" title="Pilnekrāna režīms">
+            FULL
+          </button>
+
+          <button id="btnLeaveToLobby" class="zg-leave">Iziet uz Lobby</button>
+        </div>
+      </header>
+
+      <main class="zg-main">
+        <section class="zg-felt" id="felt">
+          <!-- Rezultāta toast -->
+          <div id="resultToast" class="zg-toast" style="display: none"></div>
+
+          <!-- Spēlētāji (pretinieki augšā) -->
+          <div class="zg-seat zg-top-left" id="seatLeft"></div>
+          <div class="zg-seat zg-top-right" id="seatRight"></div>
+
+          <!-- TU dock -->
+          <div id="zgMeDock">
+            <div class="zg-seat zg-bottom" id="seatBottom"></div>
+          </div>
+
+          <!-- Centrālais overlay -->
+          <div class="zg-overlay" id="overlay" style="display: none">
+            <div class="zg-ov-title" id="overlayTitle">—</div>
+
+            <div class="zg-ov-bids" id="bidPanel">
+              <button class="zg-bid" data-bid="PASS">GARĀM</button>
+              <button class="zg-bid" data-bid="TAKE">ŅEMT GALDU</button>
+              <button class="zg-bid" data-bid="ZOLE">ZOLE</button>
+              <button class="zg-bid" data-bid="MAZA">MAZĀ ZOLE</button>
+            </div>
+
+            <div class="zg-ov-discard" id="discardPanel" style="display: none">
+              <div class="zg-small">Izvēlies 2 kārtis un spied “Norakt”.</div>
+              <div class="zg-row">
+                <button id="btnConfirmDiscard" class="zg-warn" disabled>
+                  Norakt (0/2)
+                </button>
+                <button id="btnClearDiscard" class="zg-btn">Notīrīt</button>
+              </div>
+            </div>
+
+            <div class="zg-ov-note" id="overlayNote">—</div>
+          </div>
+
+          <!-- Roka + info uz galda -->
+          <div id="zgBottomStack">
+            <div class="zg-handinfo" id="handInfo">—</div>
+            <div class="zg-hand" id="hand"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="./game.js"></script>
+  </body>
+</html>
