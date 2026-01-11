@@ -675,7 +675,12 @@ function renderMiniPtsHud() {
   html += `<div class="mph-cell mph-head">${escapeHtml(colNames[1])}</div>`;
   html += `<div class="mph-cell mph-head">${escapeHtml(colNames[2])}</div>`;
 
-  const rows = ptsHistory.slice(0, 6);
+  const isMobile = typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(max-width: 720px)").matches
+    : false;
+
+  // mobilajā: tabula mazāka (mazāk rindas), lai nepārklāj spēli
+  const rows = isMobile ? ptsHistory.slice(0, 2) : ptsHistory.slice(0, 6);
   if (!rows.length) {
     html += `<div class="mph-cell mph-n">—</div>`;
     html += `<div class="mph-cell mph-val mph-zero">0</div>`;

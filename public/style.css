@@ -969,24 +969,34 @@ body.zl-game #felt.zg-felt{
    ========================== */
 @media (max-width: 720px){
   body.zl-game{
-    padding: 8px;
+    padding: 0;
   }
 
   /* topbar kompaktāks */
   .zg-top{
-    margin-bottom: 8px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 250;
+    margin: 0;
+    padding: 8px 10px;
     gap: 8px;
     flex-wrap: wrap;
+    background: rgba(0,0,0,0.35);
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+    backdrop-filter: blur(8px);
   }
   .zg-right{ gap: 8px; flex-wrap: wrap; }
   .zg-brand{ display:none; } /* lieks uz maza ekrāna */
 
-  /* galds lai ietilpst ekrānā */
+  /* galds pa visu ekrānu */
   body.zl-game #felt.zg-felt{
-    width: 100% !important;
-    height: calc(100dvh - 140px) !important;
-    background-size: contain !important;
-    border-radius: 16px;
+    width: 100vw !important;
+    height: 100dvh !important;
+    background-size: cover !important;
+    border-radius: 0;
+    margin: 0;
   }
 
   /* pretinieku kartītes mazākas */
@@ -995,8 +1005,9 @@ body.zl-game #felt.zg-felt{
     padding: 8px;
     border-radius: 14px;
   }
-  .zg-top-left{ top: 10px; left: 10px; }
-  .zg-top-right{ top: 10px; right: 10px; }
+  /* nolaižam zem fixed header */
+  .zg-top-left{ top: 62px; left: 10px; }
+  .zg-top-right{ top: 62px; right: 10px; }
 
   /* TU dock netraucē rokai */
   #zgMeDock{
@@ -1029,6 +1040,19 @@ body.zl-game #felt.zg-felt{
   #zgBottomStack #hand .zg-cardbtn{
     width: 96px;
   }
+
+  /* PTS tabula: uz augšu, mazāka, lai nesēž uz kārtīm */
+  #miniPtsHud{
+    top: 62px !important;
+    bottom: auto !important;
+    right: 10px !important;
+    width: 160px !important;
+    padding: 6px 6px 5px !important;
+    border-radius: 10px !important;
+    z-index: 240 !important; /* zem header (250), virs galda */
+  }
+  #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
+  #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
 }
 
 /* ==========================
