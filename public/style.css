@@ -1101,7 +1101,9 @@ body.zl-game #felt.zg-felt{
   transform: translateX(-50%);
   z-index: 55; /* zem stiķa (60), virs galda */
   pointer-events: none;
+  display: none; /* pēc noklusējuma slēpts, JS ieslēdz kad vajag */
 }
+.zg-talon.is-visible{ display: block; }
 .zg-talon-cards{
   display: flex;
   gap: 10px;

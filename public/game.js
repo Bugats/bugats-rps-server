@@ -40,6 +40,7 @@ const turnLine = $("#turnLine");
 const slotLeft = $("#slotLeft");
 const slotRight = $("#slotRight");
 const slotBottom = $("#slotBottom");
+const talonPile = $("#talonPile");
 
 const overlay = $("#overlay");
 const overlayTitle = $("#overlayTitle");
@@ -1360,6 +1361,12 @@ function renderAll() {
   if (seatLeft) seatLeft.innerHTML = renderPlayerCard(pL, "pretinieks");
   if (seatRight) seatRight.innerHTML = renderPlayerCard(pR, "pretinieks");
   if (seatBottom) seatBottom.innerHTML = renderPlayerCard(me, "tu");
+
+  // 2 galda kārtis (talons): redzams tikai solīšanā
+  try {
+    const showTalon = roomState?.phase === "BIDDING";
+    if (talonPile) talonPile.classList.toggle("is-visible", !!showTalon);
+  } catch {}
 
   renderTrick();
   renderOverlay();
