@@ -907,3 +907,59 @@ body.zg-body .zg-handwrap{
 /* Lielāki stūru cipari/masti (pretty markup) */
 .zg-card.zg-pretty .zg-crank{ font-size: 30px; font-weight: 1000; }
 .zg-card.zg-pretty .zg-csuit{ font-size: 22px; font-weight: 900; }
+
+/* ==========================
+   CLEAN OVERRIDES (2026-01)
+   - pilnekrāna lapa
+   - galds vizuāli mazāks (contain)
+   - kārtis bez apaļiem stūriem
+   - liekie uzraksti nost
+   ========================== */
+
+body.zl-game{
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.zl-game .zl-wrap{
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+/* galds pa visu ekrānu, bet bilde nav “pār-zoom” */
+body.zl-game #felt.zg-felt{
+  width: min(1200px, 96vw);
+  margin: 0 auto;
+  background-size: contain;
+  /* “tabula mazāka”: uz lieliem ekrāniem neizstiep līdz bezgalībai */
+  height: clamp(420px, calc(100dvh - 170px), 740px);
+}
+
+/* kur likt kārtis: stiķis centrā */
+#trick{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, 96vw);
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* kārtis bez apaļiem stūriem + lielāki masti/skaitļi */
+.zg-card,
+.zg-card.zg-pretty,
+.zg-card.zg-pretty::before{
+  border-radius: 0 !important;
+}
+
+.zg-card.zg-pretty .zg-crank{ font-size: 30px !important; }
+.zg-card.zg-pretty .zg-csuit{ font-size: 22px !important; }
+.zg-card.zg-pretty .zg-pip{ font-size: 74px !important; opacity: 0.20 !important; }
+
+/* liekie uzraksti nost */
+#handInfo{ display: none !important; }
+#overlayNote{ display: none !important; }

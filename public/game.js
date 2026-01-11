@@ -268,8 +268,13 @@ function ensureBugatsZoleUiStyle() {
   st.textContent = `
 /* ===== BUGATS ZOLE — v6: Fullscreen-fit + kārtis centrā + lielākas + z-index fix ===== */
 .zg-felt, .zl-felt, #felt, #zoleFelt, .zole-felt, .zg-table, .zg-board{
-  width: min(1700px, 98vw) !important;
+  /* galds pilnekrāna lapā, bet vizuāli ne pārāk liels */
+  width: min(1200px, 96vw) !important;
   max-width: none !important;
+}
+#felt{
+  margin: 0 auto !important;
+  background-size: contain !important; /* lai bilde nav “pār-zoom” */
 }
 #metaLine, #turnLine{
   font-size: 12px !important;
@@ -291,14 +296,7 @@ function ensureBugatsZoleUiStyle() {
   z-index: 90; /* bija 70 */
   pointer-events: none;
 }
-#zgBottomStack #handInfo{
-  font-size: 12px !important;
-  opacity: 0.85 !important;
-  text-align: center;
-  padding: 0 10px;
-  margin: 0;
-  pointer-events: none;
-}
+#zgBottomStack #handInfo{ display:none !important; } /* liekie uzraksti nost */
 #zgBottomStack #hand{
   position: relative;
   width: 100%;
@@ -383,6 +381,9 @@ function ensureBugatsZoleUiStyle() {
     transform: scale(0.82);
   }
 }
+
+/* liekie overlay teksti nost (paliek tikai pogas) */
+#overlayNote{ display:none !important; }
 `;
   document.head.appendChild(st);
 }
@@ -399,7 +400,8 @@ function ensurePrettyCardsStyle() {
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 16px;
+  /* bez apaļiem stūriem */
+  border-radius: 0px;
   background: linear-gradient(180deg, #ffffff 0%, #f2f4f7 100%);
   border: 1px solid rgba(0,0,0,0.18);
   box-shadow:
@@ -413,7 +415,7 @@ function ensurePrettyCardsStyle() {
   content:"";
   position:absolute;
   inset:10px;
-  border-radius: 12px;
+  border-radius: 0px;
   border: 1px solid rgba(0,0,0,0.06);
   pointer-events:none;
 }
@@ -442,12 +444,12 @@ function ensurePrettyCardsStyle() {
 .zg-card.zg-pretty .zg-tl{ top:10px; left:10px; }
 .zg-card.zg-pretty .zg-br{ bottom:10px; right:10px; transform: rotate(180deg); }
 .zg-card.zg-pretty .zg-crank{
-  font-size: 24px;
-  min-width: 28px;
+  font-size: 30px;
+  min-width: 32px;
   text-align:center;
 }
 .zg-card.zg-pretty .zg-csuit{
-  font-size: 18px;
+  font-size: 22px;
   margin-top: 3px;
 }
 .zg-card.zg-pretty .zg-pip{
@@ -455,9 +457,9 @@ function ensurePrettyCardsStyle() {
   left:50%;
   top:52%;
   transform: translate(-50%, -50%);
-  font-size: 62px;
+  font-size: 74px;
   font-weight: 950;
-  opacity: 0.18;
+  opacity: 0.20;
   line-height: 1;
   user-select:none;
 }
@@ -955,38 +957,20 @@ function renderPlayerCard(p, whereLabel) {
     : `<div class="zg-avatar-letter">${initial}</div>`;
 
   const cardsLeft = roomState?.meta?.handSizes?.[p.seat] ?? 0;
-  const conn = p.connected ? "online" : "offline";
   const pts = typeof p.matchPts === "number" ? p.matchPts : 0;
-
-  const role = seatRoleLabel(p.seat);
-  const contractB = seatContractBadgeLabel(p.seat);
-  const act = seatActionLabel(p.seat);
-
   const ready =
-    roomState?.phase === "LOBBY"
-      ? p.ready
-        ? `<span class="zg-badge zg-badge-on">READY</span>`
-        : `<span class="zg-badge">nav ready</span>`
-      : "";
-
-  const roleBadge = role ? `<span class="zg-badge">${escapeHtml(role)}</span>` : "";
-  const contractBadge = contractB ? `<span class="zg-badge">${escapeHtml(contractB)}</span>` : "";
-  const actBadge = act ? `<span class="zg-badge zg-badge-on">${escapeHtml(act)}</span>` : "";
+    roomState?.phase === "LOBBY" && p.ready ? `<span class="zg-badge zg-badge-on">READY</span>` : "";
 
   const backs = Array.from({ length: Math.min(8, cardsLeft) })
     .map(() => `<span class="zg-back"></span>`)
     .join("");
-
-  const badges = [roleBadge, contractBadge, actBadge, ready].filter(Boolean).join(" ");
 
   return `<div class="zg-seat-inner">
     <div class="zg-seat-topline">
       <div class="${avatarWrapCls}">${avatarInner}</div>
       <div class="zg-nameblock">
         <div class="zg-name">${escapeHtml(p.username)}</div>
-        <div class="zg-mini">${escapeHtml(whereLabel)} • ${escapeHtml(conn)} • PTS: ${escapeHtml(
-    pts
-  )}${badges ? " • " + badges : ""}</div>
+        <div class="zg-mini">PTS: ${escapeHtml(pts)} ${ready}</div>
       </div>
     </div>
     <div class="zg-backs">${backs}</div>
