@@ -108,6 +108,128 @@ body {
   width: min(520px, 86vw);
 }
 
+/* Kārtis */
+.card {
+  width: 56px;
+  height: 78px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  user-select: none;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+}
+
+.card--back {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06)),
+    repeating-linear-gradient(
+      45deg,
+      rgba(25, 160, 90, 0.35),
+      rgba(25, 160, 90, 0.35) 6px,
+      rgba(10, 18, 34, 0.35) 6px,
+      rgba(10, 18, 34, 0.35) 12px
+    );
+  color: rgba(232, 238, 252, 0.75);
+}
+
+/* Rokas zonas */
+.hand {
+  position: absolute;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none; /* demo režīmā */
+}
+
+.hand--bottom {
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: min(820px, 92vw);
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hand--top {
+  left: 50%;
+  top: 54px;
+  transform: translateX(-50%);
+  width: min(680px, 82vw);
+  opacity: 0.9;
+}
+
+.hand--left {
+  left: 12px;
+  top: 58%;
+  transform: translateY(-50%);
+  flex-direction: column;
+  opacity: 0.9;
+}
+
+.hand--right {
+  right: 12px;
+  top: 58%;
+  transform: translateY(-50%);
+  flex-direction: column;
+  opacity: 0.9;
+}
+
+/* Stiķis pa vidu (3 kārtis) */
+.trick {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  width: min(420px, 88vw);
+  height: 140px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  place-items: center;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Talons / discards */
+.side {
+  position: absolute;
+  top: 12px;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: 132px;
+}
+
+.side__title {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+
+.side__cards {
+  display: grid;
+  gap: 8px;
+  place-items: center;
+}
+
+.side--talon {
+  left: 12px;
+}
+
+.side--discard {
+  right: 12px;
+}
+
 @media (max-width: 520px) {
   #table {
     padding: 10px;
@@ -118,5 +240,21 @@ body {
   }
   .hint {
     display: none;
+  }
+
+  .card {
+    width: 48px;
+    height: 68px;
+    border-radius: 10px;
+  }
+
+  .hand--bottom {
+    width: 96vw;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .side {
+    width: 118px;
   }
 }

@@ -22,7 +22,25 @@
           <div class="seat seat--top">Spēlētājs (augšā)</div>
           <div class="seat seat--left">Spēlētājs (pa kreisi)</div>
           <div class="seat seat--right">Spēlētājs (pa labi)</div>
-          <div class="pile">Kārtis / stāvoklis</div>
+
+          <!-- Kur likt kārtis -->
+          <div class="hand hand--top" id="handTop" aria-label="Augšējā roka"></div>
+          <div class="hand hand--left" id="handLeft" aria-label="Kreisā roka"></div>
+          <div class="hand hand--right" id="handRight" aria-label="Labā roka"></div>
+          <div class="hand hand--bottom" id="handBottom" aria-label="Tava roka"></div>
+
+          <!-- Stiķis (3 kārtis pa vidu) -->
+          <div class="trick" id="trick" aria-label="Stiķis"></div>
+
+          <!-- Talons / discards -->
+          <div class="side side--talon" aria-label="Talons">
+            <div class="side__title">Talons</div>
+            <div class="side__cards" id="talon"></div>
+          </div>
+          <div class="side side--discard" aria-label="Nometums">
+            <div class="side__title">Nometums</div>
+            <div class="side__cards" id="discard"></div>
+          </div>
         </div>
       </div>
     </div>
