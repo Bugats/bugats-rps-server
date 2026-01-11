@@ -1368,6 +1368,31 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
+  function authFromSocket() {
+    try {
+      // Atbalstām gan: io({ auth: { token } }), gan cookie (ja tas tiek sūtīts handshake laikā)
+      const token =
+        String(socket?.handshake?.auth?.token || "").trim() ||
+        String(socket?.handshake?.headers?.authorization || "")
+          .trim()
+          .match(/^Bearer\s+(.+)$/i)?.[1]
+          ?.trim() ||
+        String(parseCookies(socket?.handshake?.headers?.cookie)?.[COOKIE_NAME] || "").trim();
+
+      if (!token) return { ok: false };
+      const v = verifyToken(token);
+      if (!v.ok) return { ok: false };
+
+      const username = safeUsername(v.payload?.username);
+      const avatarUrl = safeAvatarUrl(v.payload?.avatarUrl);
+
+      if (!username) return { ok: false };
+      return { ok: true, username, avatarUrl };
+    } catch {
+      return { ok: false };
+    }
+  }
+
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
     try { ack?.({ ok: true }); } catch {}
@@ -1402,8 +1427,10 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      const authed = authFromSocket();
+      const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
+      const avatarUrl =
+        safeAvatarUrl(payload?.avatarUrl) || (authed.ok ? authed.avatarUrl : "");
       const clientSeed = String(payload?.seed || "").trim();
 
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
@@ -1446,8 +1473,10 @@ io.on("connection", (socket) => {
 
   socket.on("room:join", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      const authed = authFromSocket();
+      const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
+      const avatarUrl =
+        safeAvatarUrl(payload?.avatarUrl) || (authed.ok ? authed.avatarUrl : "");
       const clientSeed = String(payload?.seed || "").trim();
 
       const roomId = normRoomId(payload?.roomId);
