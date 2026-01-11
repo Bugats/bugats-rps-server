@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="lv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Zole — galds</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="table" aria-label="Spēles galds">
+        <div class="table__hud">
+          <div class="hud__left">
+            <div class="badge" id="connBadge">Nav savienojuma</div>
+          </div>
+          <div class="hud__right">
+            <div class="hint">Galds ir 100% ekrāna (100vw × 100vh)</div>
+          </div>
+        </div>
+
+        <div class="table__center">
+          <div class="seat seat--top">Spēlētājs (augšā)</div>
+          <div class="seat seat--left">Spēlētājs (pa kreisi)</div>
+          <div class="seat seat--right">Spēlētājs (pa labi)</div>
+          <div class="pile">Kārtis / stāvoklis</div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

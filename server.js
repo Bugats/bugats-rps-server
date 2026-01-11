@@ -134,7 +134,12 @@ const app = express();
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "256kb" }));
 
-app.get("/", (_req, res) => res.send("OK"));
+// Statiskā UI (lai "galds" var būt pilnekrāna klientā)
+const PUBLIC_DIR = path.join(__dirname, "public");
+app.use(express.static(PUBLIC_DIR, { extensions: ["html"] }));
+
+app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
+app.get("/api/ping", (_req, res) => res.send("OK"));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 /* ============================
