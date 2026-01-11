@@ -800,7 +800,7 @@ body.zg-body .zg-handwrap{
   left: 12px;
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   width: min(360px, 30vw);
-  z-index: 80;
+  z-index: 20; /* zem rokas/kārtīm */
   pointer-events: none;
 }
 #zgMeDock #seatBottom{ width: 100%; }
@@ -1133,15 +1133,16 @@ body.zl-game #felt.zg-felt{
 
   /* TU dock netraucē rokai */
   #zgMeDock{
-    width: min(168px, 46vw);
-    left: 6px;
-    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-    opacity: 0.95;
-    z-index: 80; /* zem rokas, bet roka ir ar padding-left */
+    width: min(220px, 66vw);
+    left: 50%;
+    bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    opacity: 0.88;
+    z-index: 20; /* zem kārtīm */
   }
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);
-    transform-origin: bottom left;
+    transform-origin: bottom center;
   }
 
   /* Mobilajā: vārds galvenais, pārējo minimizējam */
@@ -1172,8 +1173,7 @@ body.zl-game #felt.zg-felt{
     width: 96vw;
     bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     gap: 6px;
-    /* atstāj vietu “TU” kartītei pa kreisi */
-    padding-left: min(178px, 48vw);
+    padding-left: 6px;
     padding-right: 6px;
     z-index: 110;
   }
