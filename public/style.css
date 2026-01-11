@@ -1071,7 +1071,7 @@ body.zl-game #felt.zg-felt{
     overflow: hidden; /* visas kārtis redzamas uzreiz */
     padding: 0 10px 6px;
     gap: 0;
-    justify-content: center;
+    justify-content: center !important; /* lai roka ir centrā */
   }
   #zgBottomStack #hand .zg-cardbtn{
     width: 96px;
@@ -1089,6 +1089,49 @@ body.zl-game #felt.zg-felt{
   }
   #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
   #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
+}
+
+/* ==========================
+   TALON (2 galda kārtis) — vienmēr redzamas
+   ========================== */
+.zg-talon{
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 55; /* zem stiķa (60), virs galda */
+  pointer-events: none;
+}
+.zg-talon-cards{
+  display: flex;
+  gap: 10px;
+}
+.zg-cardback{
+  width: 64px;
+  height: 92px;
+  border-radius: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.14), rgba(0,0,0,0.18)),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,0.10),
+      rgba(255,255,255,0.10) 6px,
+      rgba(0,0,0,0.10) 6px,
+      rgba(0,0,0,0.10) 12px
+    );
+  box-shadow: 0 14px 30px rgba(0,0,0,0.30);
+}
+
+@media (max-width: 720px){
+  /* 2 galda kārtis pārvietojam zem header */
+  .zg-talon{
+    top: 132px;
+  }
+  .zg-cardback{
+    width: 56px;
+    height: 82px;
+  }
 }
 
 /* ==========================
