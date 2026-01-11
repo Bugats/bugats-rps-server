@@ -84,6 +84,9 @@ let toastTimer = null;
 let _lastTapKey = "";
 let _lastTapAt = 0;
 
+// Trick UX: patur pēdējo stiķi redzamu īsu brīdi (lai pamanāms pēdējais gājiens)
+let _trickHold = null; // { plays: Array<{seat,card}>, until: number }
+
 /* ============================
    FULLSCREEN + AUTO-FIT (desktop + mobile where supported)
    ============================ */
@@ -677,12 +680,13 @@ function renderMiniPtsHud() {
   html += `<div class="mph-cell mph-head">${escapeHtml(colNames[1])}</div>`;
   html += `<div class="mph-cell mph-head">${escapeHtml(colNames[2])}</div>`;
 
-  const isMobile = typeof window !== "undefined" && window.matchMedia
-    ? window.matchMedia("(max-width: 720px)").matches
-    : false;
+  const isMobile =
+    typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(max-width: 720px)").matches
+      : false;
 
-  // mobilajā: tabula mazāka (mazāk rindas), lai nepārklāj spēli
-  const rows = isMobile ? ptsHistory.slice(0, 2) : ptsHistory.slice(0, 6);
+  // tabula mazāka (mazāk rindas), lai nepārklāj spēli
+  const rows = isMobile ? ptsHistory.slice(0, 1) : ptsHistory.slice(0, 2);
   if (!rows.length) {
     html += `<div class="mph-cell mph-n">—</div>`;
     html += `<div class="mph-cell mph-val mph-zero">0</div>`;
@@ -1059,12 +1063,23 @@ function renderTrick() {
   if (slotRight) slotRight.innerHTML = "";
   if (slotBottom) slotBottom.innerHTML = "";
 
-  if (!roomState?.trickPlays?.length) return;
+  const now = Date.now();
+  const live = Array.isArray(roomState?.trickPlays) ? roomState.trickPlays : [];
+  const plays =
+    live.length > 0
+      ? live
+      : _trickHold && Array.isArray(_trickHold.plays) && now < _trickHold.until
+        ? _trickHold.plays
+        : [];
+
+  if (!plays.length) return;
 
   const { left, right } = viewSeats();
 
-  for (const pl of roomState.trickPlays) {
-    const html = renderCardFace(pl.card);
+  const lastSeat = plays[plays.length - 1]?.seat;
+  for (const pl of plays) {
+    const wrapCls = pl.seat === lastSeat ? "zg-trickwrap zg-last-played" : "zg-trickwrap";
+    const html = `<div class="${wrapCls}">${renderCardFace(pl.card)}</div>`;
     if (pl.seat === mySeat) safeHtml(slotBottom, html);
     else if (pl.seat === left) safeHtml(slotLeft, html);
     else if (pl.seat === right) safeHtml(slotRight, html);
@@ -1562,6 +1577,7 @@ socket = io({
   socket.on("server:hello", () => log("server: hello OK"));
 
   socket.on("room:state", (st) => {
+    const prevTrick = Array.isArray(roomState?.trickPlays) ? roomState.trickPlays : [];
     const prevMap = new Map();
     try {
       if (Array.isArray(roomState?.players)) {
@@ -1573,6 +1589,16 @@ socket = io({
 
     roomState = st;
     if (typeof st?.mySeat === "number") mySeat = st.mySeat;
+
+    // ja stiķis tikko noslēdzās (3 kārtis -> 0), paturam to uz brīdi redzamu
+    try {
+      const nextTrick = Array.isArray(st?.trickPlays) ? st.trickPlays : [];
+      if (prevTrick.length === 3 && nextTrick.length === 0) {
+        _trickHold = { plays: prevTrick.slice(), until: Date.now() + 1400 };
+      } else if (nextTrick.length > 0) {
+        _trickHold = null;
+      }
+    } catch {}
 
     const newTs = st?.lastResult?.ts || 0;
     const isNewResult = !!newTs && newTs !== lastShownResultTs;

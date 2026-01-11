@@ -975,12 +975,13 @@ body.zl-game #felt.zg-felt{
     scroll-snap-align: unset !important;
   }
 
-  /* PTS tabula uz augšu (lai nekad nesēž uz rokas) */
+  /* PTS tabula pa labi pa vidu */
   #miniPtsHud{
-    top: 12px !important;
+    top: 50% !important;
     bottom: auto !important;
-    right: 12px !important;
-    width: 190px !important;
+    right: 10px !important;
+    width: 150px !important;
+    transform: translateY(-50%) !important;
   }
 }
 
@@ -1018,6 +1019,28 @@ body.zl-game #felt.zg-felt{
 }
 #zgBottomStack #hand .zg-cardbtn + .zg-cardbtn{
   margin-left: calc(-1 * var(--overlap, 60px)) !important;
+}
+
+/* pēdējais gājiens: izcelt + paturēt redzamu */
+.zg-trickwrap{ display: inline-block; }
+.zg-last-played .zg-card{
+  outline: 3px solid rgba(210,164,23,0.85);
+  outline-offset: 2px;
+  box-shadow:
+    0 22px 60px rgba(0,0,0,0.45),
+    0 0 0 2px rgba(255,255,255,0.14) inset;
+}
+
+/* Player kartītes mazākas + tuvāk sienām (desktop) */
+@media (min-width: 721px){
+  .zg-seat{
+    width: 200px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+  .zg-top-left{ top: 8px; left: 8px; }
+  .zg-top-right{ top: 8px; right: 8px; }
+  #zgMeDock{ left: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Košākas kārtis (cipari/masti/figūras) */
@@ -1071,20 +1094,20 @@ body.zl-game #felt.zg-felt{
     margin: 0;
   }
 
-  /* pretinieku kartītes mazākas */
+  /* pretinieku kartītes mazākas + pie sienām */
   .zg-seat{
-    width: 190px;
-    padding: 8px;
-    border-radius: 14px;
+    width: 168px;
+    padding: 6px;
+    border-radius: 12px;
   }
   /* nolaižam zem fixed header */
-  .zg-top-left{ top: 62px; left: 10px; }
-  .zg-top-right{ top: 62px; right: 10px; }
+  .zg-top-left{ top: 58px; left: 6px; }
+  .zg-top-right{ top: 58px; right: 6px; }
 
   /* TU dock netraucē rokai */
   #zgMeDock{
-    width: min(220px, 52vw);
-    left: 8px;
+    width: min(200px, 54vw);
+    left: 6px;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     opacity: 0.95;
   }
@@ -1113,15 +1136,16 @@ body.zl-game #felt.zg-felt{
     width: 96px;
   }
 
-  /* PTS tabula: uz augšu, mazāka, lai nesēž uz kārtīm */
+  /* PTS tabula pa labi pa vidu (mazāka) */
   #miniPtsHud{
-    top: 62px !important;
+    top: 50% !important;
     bottom: auto !important;
-    right: 10px !important;
-    width: 160px !important;
+    right: 8px !important;
+    width: 138px !important;
     padding: 6px 6px 5px !important;
     border-radius: 10px !important;
     z-index: 240 !important; /* zem header (250), virs galda */
+    transform: translateY(-50%) !important;
   }
   #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
   #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
