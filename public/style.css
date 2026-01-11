@@ -237,6 +237,21 @@ body.zl-body, body.zg-body{
   overflow:hidden;
   text-overflow:ellipsis;
 }
+.zg-subline{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color: var(--muted);
+  font-size:12px;
+  line-height:1.1;
+  min-width:0;
+}
+.zg-badges{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
 .zg-mini{ color: var(--muted); font-size:12px; }
 
 .zg-badge{
@@ -1127,6 +1142,22 @@ body.zl-game #felt.zg-felt{
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);
     transform-origin: bottom left;
+  }
+
+  /* Mobilajā: vārds galvenais, pārējo minimizējam */
+  .zg-seat .zg-avatar,
+  .zg-seat .zg-backs{
+    display:none !important;
+  }
+  .zg-seat .zg-name{
+    font-size: 14px;
+  }
+  .zg-seat .zg-pts{
+    display:none; /* atstājam tikai bedžus, lai redz "GĀJIENS/LIELAIS/ZOLE" */
+  }
+  .zg-seat .zg-subline{
+    font-size: 11px;
+    color: rgba(238,242,255,0.78);
   }
 
   /* stiķis centrā mazliet mazāks */

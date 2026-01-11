@@ -1005,7 +1005,10 @@ function renderPlayerCard(p, whereLabel) {
       <div class="${avatarWrapCls}">${avatarInner}</div>
       <div class="zg-nameblock">
         <div class="zg-name">${escapeHtml(p.username)}</div>
-        <div class="zg-mini">PTS: ${escapeHtml(pts)}${badges ? " • " + badges : ""}</div>
+        <div class="zg-subline">
+          <span class="zg-pts">PTS: ${escapeHtml(pts)}</span>
+          ${badges ? `<span class="zg-badges">${badges}</span>` : ""}
+        </div>
       </div>
     </div>
     <div class="zg-backs">${backs}</div>
