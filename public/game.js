@@ -1594,7 +1594,7 @@ socket = io({
     try {
       const nextTrick = Array.isArray(st?.trickPlays) ? st.trickPlays : [];
       if (prevTrick.length === 3 && nextTrick.length === 0) {
-        _trickHold = { plays: prevTrick.slice(), until: Date.now() + 1400 };
+        _trickHold = { plays: prevTrick.slice(), until: Date.now() + 2400 };
       } else if (nextTrick.length > 0) {
         _trickHold = null;
       }

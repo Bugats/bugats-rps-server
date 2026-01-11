@@ -980,8 +980,9 @@ body.zl-game #felt.zg-felt{
     top: 50% !important;
     bottom: auto !important;
     right: 10px !important;
-    width: 150px !important;
+    width: 128px !important;
     transform: translateY(-50%) !important;
+    opacity: 0.88;
   }
 }
 
@@ -1120,7 +1121,7 @@ body.zl-game #felt.zg-felt{
     left: 6px;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     opacity: 0.95;
-    z-index: 95; /* virs rokas, lai nav “zem kārtīm” */
+    z-index: 120; /* virs rokas, lai nav “zem kārtīm” */
   }
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);
@@ -1142,6 +1143,7 @@ body.zl-game #felt.zg-felt{
     /* atstāj vietu “TU” kartītei pa kreisi */
     padding-left: min(178px, 48vw);
     padding-right: 6px;
+    z-index: 110;
   }
   #zgBottomStack #hand{
     height: 170px;
@@ -1158,15 +1160,37 @@ body.zl-game #felt.zg-felt{
   #miniPtsHud{
     top: 50% !important;
     bottom: auto !important;
-    right: 8px !important;
-    width: 138px !important;
+    right: 4px !important;
+    width: 118px !important;
     padding: 6px 6px 5px !important;
     border-radius: 10px !important;
     z-index: 240 !important; /* zem header (250), virs galda */
     transform: translateY(-50%) !important;
+    opacity: 0.88;
   }
   #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
   #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
+}
+
+/* Desktop: topbar mazāks */
+@media (min-width: 721px){
+  .zg-top{ margin-bottom: 8px; }
+  .zg-ready, .zg-btn, .zg-leave{
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+}
+
+/* Overlay (menu) mazāks, lai netraucē kārtīm */
+.zg-overlay{
+  width: min(280px, 86vw);
+  padding: 12px;
+}
+.zg-bid{
+  height: 46px;
+  font-size: 18px;
 }
 
 /* ==========================
