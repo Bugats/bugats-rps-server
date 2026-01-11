@@ -1746,6 +1746,18 @@ function boot() {
   try {
     initFullscreenAndFit();
   } catch {}
+  // Mobilajā: īsāki button teksti (mazāk vietas, vairāk kārtīm)
+  try {
+    const isMobile =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(max-width: 720px)").matches
+        : false;
+    if (isMobile) {
+      if (btnLeaveToLobby) btnLeaveToLobby.textContent = "LOBBY";
+      if (btnFullscreen) btnFullscreen.textContent = "FULL";
+      // READY jau īss; atstājam
+    }
+  } catch {}
   connect();
 }
 
