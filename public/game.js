@@ -78,6 +78,10 @@ let discardPick = [];
 let lastShownResultTs = 0;
 let toastTimer = null;
 
+// Mobile UX: double-tap uz kārts DISCARD režīmā
+let _lastTapKey = "";
+let _lastTapAt = 0;
+
 /* ============================
    FULLSCREEN + AUTO-FIT (desktop + mobile where supported)
    ============================ */
@@ -1158,6 +1162,11 @@ function renderHand() {
 
   const handSorted = sortHandByStrength(roomState.myHand || [], roomState.contract);
   const legal = new Set((roomState.legal || []).map(cardToKey));
+  // lai CSS var pielāgot rokas izkārtojumu (PLAY vs DISCARD)
+  try {
+    handEl.dataset.phase = String(roomState.phase || "");
+    handEl.style.setProperty("--hand-n", String(handSorted.length));
+  } catch {}
 
   const contract = contractLabel(roomState.contract);
   const phase = phaseLabel(roomState.phase);
@@ -1177,7 +1186,15 @@ function renderHand() {
     const btn = document.createElement("button");
     btn.className = "zg-cardbtn";
     btn.type = "button";
-   btn.style.zIndex = String(i);
+    btn.style.zIndex = String(i);
+    // fan/overlap: normalizēts t ∈ [-1..1]
+    try {
+      const n = Math.max(1, handSorted.length);
+      const mid = (n - 1) / 2;
+      const denom = mid === 0 ? 1 : mid;
+      const t = (i - mid) / denom;
+      btn.style.setProperty("--t", String(t));
+    } catch {}
 
     const legalNow = roomState.phase === "PLAY" && isMyTurn() && legal.has(key);
     const disabledPlay = roomState.phase === "PLAY" && isMyTurn() && !legal.has(key);
@@ -1192,6 +1209,11 @@ function renderHand() {
 
     btn.addEventListener("click", () => {
       if (isMyDiscardPhase()) {
+        const now = Date.now();
+        const isDbl = _lastTapKey === key && now - _lastTapAt <= 360;
+        _lastTapKey = key;
+        _lastTapAt = now;
+
         const exists = discardPick.findIndex((x) => sameCard(x, c));
         if (exists >= 0) discardPick.splice(exists, 1);
         else {
@@ -1200,6 +1222,19 @@ function renderHand() {
         }
         updateDiscardButtons();
         renderHand();
+
+        // dubulttaps: ja jau ir 2 izvēlētas, automātiski norok
+        if (isDbl && discardPick.length === 2) {
+          socket.emit(
+            "zole:discard",
+            { discard: discardPick.map((x) => ({ r: x.r, s: x.s })) },
+            (res) => {
+              if (!res?.ok) log(`zole:discard kļūda: ${res?.error || "UNKNOWN"}`);
+              discardPick = [];
+              updateDiscardButtons();
+            }
+          );
+        }
         return;
       }
 

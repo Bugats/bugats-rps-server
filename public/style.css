@@ -1021,12 +1021,61 @@ body.zl-game #felt.zg-felt{
   }
   #zgBottomStack #hand{
     height: 170px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: hidden; /* visas kārtis redzamas uzreiz */
     padding: 0 10px 6px;
-    gap: 10px;
+    gap: 0;
+    justify-content: center;
   }
   #zgBottomStack #hand .zg-cardbtn{
     width: 96px;
+  }
+}
+
+/* ==========================
+   MOBILE HAND (FAN/OVERLAP)
+   - visas kārtis redzamas uzreiz
+   - DISCARD režīmā vairāk overlap (jo 10 kārtis)
+   - tap = paceļ, dubulttap = norok (loģika game.js)
+   ========================== */
+@media (max-width: 720px){
+  body.zl-game #zgBottomStack #hand{
+    /* neļaujam “scroll” režīmam uzvarēt */
+    overflow-x: hidden !important;
+    scroll-snap-type: none !important;
+  }
+
+  body.zl-game #zgBottomStack #hand .zg-cardbtn{
+    /* overlapped fan */
+    margin-left: -56px;
+    transform-origin: 50% 160px;
+    transform:
+      translateX(calc(var(--t, 0) * 18px))
+      rotate(calc(var(--t, 0) * 5deg))
+      translateY(10px);
+    transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
+  }
+  body.zl-game #zgBottomStack #hand .zg-cardbtn:first-child{
+    margin-left: 0;
+  }
+
+  /* DISCARD: vairāk overlap, lai 10 kārtis ietilpst */
+  body.zl-game #zgBottomStack #hand[data-phase="DISCARD"] .zg-cardbtn{
+    margin-left: -68px;
+  }
+
+  body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
+    transform:
+      translateX(calc(var(--t, 0) * 18px))
+      rotate(calc(var(--t, 0) * 5deg))
+      translateY(-12px);
+    z-index: 9999;
+  }
+
+  body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected{
+    transform:
+      translateX(calc(var(--t, 0) * 18px))
+      rotate(calc(var(--t, 0) * 5deg))
+      translateY(-18px);
+    z-index: 9999;
   }
 }
