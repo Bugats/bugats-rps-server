@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="lv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>ZOLE — Lobby</title>
+
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <link rel="stylesheet" href="/lobby.css" />
+  </head>
+
+  <body class="zl-body zl-lobby">
+    <div class="zl-wrap">
+      <header class="zl-top" style="position:relative; z-index:50;">
+        <div class="zl-brand">
+          <div class="zl-logo">Z</div>
+          <div>
+            <div class="zl-title">ZOLE</div>
+            <div class="zl-sub">thezone.lv • Lobby</div>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px;">
+          <a
+            id="btnBackAuth"
+            class="zl-btn"
+            href="/"
+            target="_top"
+            rel="noopener"
+            title="Atpakaļ"
+          >
+            Atpakaļ
+          </a>
+
+          <div class="zl-conn">
+            <span id="connDot" class="zl-dot zl-dot-off"></span>
+            <span id="connLabel">Nav savienojuma</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="zl-card">
+        <h2>Istabas</h2>
+
+        <div id="profileBar" class="zl-profile">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div id="profileAvatar" class="zl-avatar">Z</div>
+
+            <div>
+              <div style="font-weight:900;">
+                Pieslēdzies kā: <span id="profileName">—</span>
+              </div>
+              <div style="opacity:0.85; font-size:13px;">
+                PTS: <span id="profilePts">—</span>
+              </div>
+            </div>
+          </div>
+
+          <a
+            id="btnChangeProfile"
+            class="zl-btn"
+            href="/"
+            target="_top"
+            rel="noopener"
+            title="Mainīt profilu"
+          >
+            Mainīt profilu
+          </a>
+        </div>
+
+        <div class="zl-form">
+          <input id="nick" type="hidden" />
+
+          <label>
+            Avatārs (URL)
+            <input id="avatarUrl" type="text" placeholder="https://..." />
+          </label>
+
+          <label>
+            Istaba (ROOM)
+            <input id="roomId" type="text" placeholder="piem., A1B2" />
+          </label>
+
+          <div class="zl-row">
+            <button id="btnCreate" class="zl-btn zl-primary" type="button">Izveidot istabu</button>
+            <button id="btnJoin" class="zl-btn" type="button">Pievienoties</button>
+          </div>
+
+          <div class="zl-hint">
+            Testam: atver 3 logus ar dažādiem profiliem, visi pievienojas tai pašai ROOM.
+          </div>
+
+          <div id="errBox" class="zl-err" style="display:none;"></div>
+
+          <div style="height:14px;"></div>
+
+          <div class="zl-row" style="align-items:center; justify-content:space-between;">
+            <div style="font-weight:800;">Atvērtās istabas</div>
+            <button id="btnRefreshRooms" class="zl-btn" type="button">Atjaunināt</button>
+          </div>
+
+          <div id="roomsEmpty" class="zl-hint" style="margin-top:8px; display:none;">
+            Nav atrasta neviena atvērta istaba.
+          </div>
+
+          <div id="roomsList" style="margin-top:10px; display:grid; gap:10px;"></div>
+
+          <div style="height:16px;"></div>
+
+          <div class="zl-row" style="align-items:center; justify-content:space-between;">
+            <div style="font-weight:800;">TOP 10</div>
+            <button id="btnRefreshTop10" class="zl-btn" type="button">Atjaunināt</button>
+          </div>
+
+          <div id="top10Empty" class="zl-hint" style="margin-top:8px; display:none;">
+            Nav datu.
+          </div>
+
+          <ol id="top10List" class="zl-top10" style="margin-top:10px;"></ol>
+        </div>
+      </main>
+
+      <footer class="zl-foot">thezone.lv • Zole</footer>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/lobby.js" defer></script>
+  </body>
+</html>
+
