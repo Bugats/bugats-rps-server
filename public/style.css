@@ -1420,15 +1420,30 @@ body.zl-game #felt.zg-felt{
   body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
     transform:
       translateX(calc(var(--t, 0) * 12px))
-      translateY(-14px);
+      translateY(0px);
     z-index: 9999;
   }
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected{
     transform:
       translateX(calc(var(--t, 0) * 12px))
-      translateY(-22px);
+      translateY(0px);
     z-index: 9999;
+  }
+
+  /* Izvēlētai kārtij izcēlums, nevis “palielināšana” */
+  body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected .zg-card{
+    outline: 3px solid rgba(210,164,23,0.85);
+    outline-offset: 2px;
+  }
+}
+
+/* Touch ierīcēs neizmantojam hover “paceļ” efektus */
+@media (hover: none) and (pointer: coarse){
+  body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
+    transform:
+      translateX(calc(var(--t, 0) * 12px))
+      translateY(0px) !important;
   }
 }
 
