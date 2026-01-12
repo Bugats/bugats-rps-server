@@ -112,6 +112,9 @@ const AUTO_NEXT_HAND_MS = Math.max(
   Math.min(20000, parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000)
 );
 
+// Turn taimeris (lai refresh/disconnect netraucē citiem) — 25 sekundes katram gājienam
+const TURN_MS = Math.max(5000, Math.min(60000, parseInt(process.env.TURN_MS || "25000", 10) || 25000));
+
 // Pauze pēc 3. kārts stiķī (lai visi paspēj redzēt)
 const TRICK_PAUSE_MS = Math.max(
   0,
@@ -975,6 +978,8 @@ function newRoom(roomId) {
 
     leaderSeat: null,
     turnSeat: null,
+    turnEndsAt: 0,
+    turnTimer: null,
     trickPlays: [],
     trickPauseUntil: 0,
     trickTimer: null,
@@ -1010,6 +1015,11 @@ function resetHandState(room) {
 
   room.leaderSeat = null;
   room.turnSeat = null;
+  room.turnEndsAt = 0;
+  if (room.turnTimer) {
+    try { clearTimeout(room.turnTimer); } catch {}
+    room.turnTimer = null;
+  }
   room.trickPlays = [];
   room.trickPauseUntil = 0;
   if (room.trickTimer) {
@@ -1063,12 +1073,14 @@ function startNewHand(room) {
 
   const didDeal = dealIfReady(room);
   emitRoom(room, { note: didDeal ? "NEW_HAND_DEALT" : "NEW_HAND_WAIT_SEEDS" });
+  scheduleTurnTimer(room);
 }
 
 function preparePlayPhase(room) {
   room.phase = "PLAY";
   room.trickPlays = [];
   room.turnSeat = room.leaderSeat;
+  scheduleTurnTimer(room);
 }
 
 function applyPayEachSigned(room, bigSeat, payEachSigned) {
@@ -1296,6 +1308,202 @@ function computeLegalForSeat(room, seat) {
   return hand.filter((c) => !isTrumpStd(c) && c.s === follow);
 }
 
+function clearTurnTimer(room) {
+  room.turnEndsAt = 0;
+  if (room.turnTimer) {
+    try { clearTimeout(room.turnTimer); } catch {}
+    room.turnTimer = null;
+  }
+}
+
+function pickWeakestCard(cards) {
+  const arr = (cards || []).slice();
+  if (!arr.length) return null;
+  arr.sort((a, b) => {
+    const at = isTrumpStd(a);
+    const bt = isTrumpStd(b);
+    if (at !== bt) return at ? 1 : -1; // netrumpji (parasti) vājāki par trumpjiem
+    if (at && bt) return (trumpStrengthStd(b) ?? 999) - (trumpStrengthStd(a) ?? 999); // lielāks idx = vājāks
+    // netrumpji: mazāks strength = vājāks
+    return (nonTrumpStrengthStd(a) ?? 0) - (nonTrumpStrengthStd(b) ?? 0);
+  });
+  return arr[0] || null;
+}
+
+function autoBid(room, seat) {
+  if (room.phase !== "BIDDING") return false;
+  if (room.turnSeat !== seat) return false;
+
+  if (!room.deck) {
+    const did = dealIfReady(room);
+    if (!did) return false;
+  }
+
+  // timeout = GARĀM
+  room.bids.push({ seat, bid: "GARĀM" });
+  room.turnSeat = nextSeatCW(room.turnSeat);
+
+  const passCount = room.bids.filter((b) => b.bid === "GARĀM").length;
+  if (passCount >= 3) {
+    room.contract = CONTRACT_GALDS;
+    room.bigSeat = null;
+
+    room.phase = "PLAY";
+    room.trickPlays = [];
+    room.turnSeat = room.leaderSeat;
+
+    room.galdsTrickNo = 0;
+    room.galdsTalonIndex = 0;
+
+    emitRoom(room, { note: "ALL_GARAM_GALDS" });
+    scheduleTurnTimer(room);
+    return true;
+  }
+
+  emitRoom(room, { note: "GARAM_TIMEOUT" });
+  scheduleTurnTimer(room);
+  return true;
+}
+
+function autoDiscard(room) {
+  if (room.phase !== "DISCARD") return false;
+  const seat = room.bigSeat;
+  if (typeof seat !== "number") return false;
+  if (room.contract !== CONTRACT_TAKE) return false;
+
+  const hand = room.hands[seat] || [];
+  if (hand.length < 2) return false;
+
+  const first = pickWeakestCard(hand);
+  if (!first) return false;
+  const tmp = hand.slice();
+  // noņemam vienu kopiju
+  const i1 = tmp.findIndex((c) => sameCard(c, first));
+  if (i1 !== -1) tmp.splice(i1, 1);
+  const second = pickWeakestCard(tmp);
+  if (!second) return false;
+
+  // izņemam no īstās rokas
+  const picked = [];
+  for (const pick of [first, second]) {
+    const idx = hand.findIndex((h) => sameCard(h, pick));
+    if (idx !== -1) picked.push(hand.splice(idx, 1)[0]);
+  }
+  if (picked.length !== 2) return false;
+
+  room.discard = picked;
+  preparePlayPhase(room);
+  emitRoom(room, { note: "DISCARD_TIMEOUT_AUTO" });
+  return true;
+}
+
+function autoPlay(room, seat) {
+  if (room.phase !== "PLAY") return false;
+  if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) return false;
+  if (room.turnSeat !== seat) return false;
+
+  const legal = computeLegalForSeat(room, seat);
+  const c = pickWeakestCard(legal);
+  if (!c) return false;
+
+  const hand = room.hands[seat] || [];
+  const idx = hand.findIndex((h) => sameCard(h, c));
+  if (idx === -1) return false;
+
+  const played = hand.splice(idx, 1)[0];
+  room.trickPlays.push({ seat, card: played });
+
+  if (room.trickPlays.length < 3) {
+    room.turnSeat = nextSeatCW(room.turnSeat);
+    emitRoom(room, { note: "PLAY_TIMEOUT_AUTO" });
+    scheduleTurnTimer(room);
+    return true;
+  }
+
+  // 3. kārts: pauze, tad tikai izrēķinam uzvarētāju
+  clearTurnTimer(room);
+  room.trickPauseUntil = Date.now() + TRICK_PAUSE_MS;
+  emitRoom(room, { note: "TRICK_COMPLETE" });
+
+  if (room.trickTimer) {
+    try { clearTimeout(room.trickTimer); } catch {}
+    room.trickTimer = null;
+  }
+
+  room.trickTimer = setTimeout(() => {
+    try {
+      if (!rooms.has(room.roomId)) return;
+      if (room.phase !== "PLAY") return;
+      if (!Array.isArray(room.trickPlays) || room.trickPlays.length !== 3) return;
+
+      room.trickPauseUntil = 0;
+      room.trickTimer = null;
+
+      const winnerSeat = pickTrickWinner(room, room.trickPlays);
+      for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
+
+      room.trickPlays = [];
+      room.leaderSeat = winnerSeat;
+      room.turnSeat = winnerSeat;
+
+      if (room.contract === CONTRACT_GALDS) {
+        room.galdsTrickNo += 1;
+        if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
+          room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
+          room.galdsTalonIndex += 1;
+        }
+      }
+
+      emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
+      scheduleTurnTimer(room);
+
+      if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
+        return scoreMaza(room, "TOOK_TRICK");
+      }
+
+      const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
+      if (!allHandsEmpty) return;
+
+      if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
+      if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
+      if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
+
+      return scoreTakeOrZole(room);
+    } catch {}
+  }, TRICK_PAUSE_MS);
+
+  return true;
+}
+
+function scheduleTurnTimer(room) {
+  clearTurnTimer(room);
+  if (!room) return;
+
+  const now = Date.now();
+  if (room.phase === "PLAY" && room.trickPauseUntil && now < room.trickPauseUntil) return;
+
+  let seat = null;
+  if (room.phase === "PLAY" || room.phase === "BIDDING") seat = room.turnSeat;
+  else if (room.phase === "DISCARD") seat = room.bigSeat;
+  else return;
+  if (typeof seat !== "number") return;
+
+  room.turnEndsAt = now + TURN_MS;
+  const expected = room.turnEndsAt;
+
+  room.turnTimer = setTimeout(() => {
+    const r = rooms.get(room.roomId);
+    if (!r) return;
+    if (r.turnEndsAt !== expected) return; // jau pārbīdīts
+
+    try {
+      if (r.phase === "BIDDING") autoBid(r, seat);
+      else if (r.phase === "DISCARD") autoDiscard(r);
+      else if (r.phase === "PLAY") autoPlay(r, seat);
+    } catch {}
+  }, TURN_MS + 35);
+}
+
 function publicPlayers(room) {
   return room.players.map((p) => ({
     seat: p.seat,
@@ -1342,6 +1550,7 @@ function sanitizeStateForSeat(room, seat) {
 
     leaderSeat: room.leaderSeat,
     turnSeat: room.turnSeat,
+    turnEndsAt: room.turnEndsAt || 0,
     trickPlays: room.trickPlays,
 
     mySeat: seat,
@@ -1546,26 +1755,24 @@ io.on("connection", (socket) => {
 
       const leavingMidHand = room.phase !== "LOBBY";
 
-      room.players[seat] = {
-        seat,
-        username: null,
-        avatarUrl: "",
-        ready: false,
-        connected: false,
-        socketId: null,
-        seed: null,
-        matchPts: START_PTS,
-      };
-
+      // Ja kāds netīšām “iziet” (vai pārslēdz lapu), tas netraucē citiem:
+      // mid-hand mēs NEANULĒJAM partiju, vienkārši atvienojam spēlētāju (viņš var pārpievienoties ar to pašu niku).
       if (leavingMidHand) {
-        room.lastResult = {
-          ts: Date.now(),
-          handNo: room.handNo,
-          contract: room.contract || null,
-          note: "ABORTED_PLAYER_LEFT",
+        room.players[seat].connected = false;
+        room.players[seat].socketId = null;
+        room.players[seat].ready = false;
+        scheduleTurnTimer(room);
+      } else {
+        room.players[seat] = {
+          seat,
+          username: null,
+          avatarUrl: "",
+          ready: false,
+          connected: false,
+          socketId: null,
+          seed: null,
+          matchPts: START_PTS,
         };
-        room.phase = "LOBBY";
-        resetHandState(room);
       }
 
       if (roomIsEmpty(room)) {
@@ -1648,6 +1855,7 @@ io.on("connection", (socket) => {
 
     if (bidRaw === "GARĀM") {
       room.turnSeat = nextSeatCW(room.turnSeat);
+      scheduleTurnTimer(room);
 
       const passCount = room.bids.filter((b) => b.bid === "GARĀM").length;
       if (passCount >= 3) {
@@ -1657,6 +1865,7 @@ io.on("connection", (socket) => {
         room.phase = "PLAY";
         room.trickPlays = [];
         room.turnSeat = room.leaderSeat;
+        scheduleTurnTimer(room);
 
         room.galdsTrickNo = 0;
         room.galdsTalonIndex = 0;
@@ -1677,6 +1886,7 @@ io.on("connection", (socket) => {
 
       room.hands[seat] = (room.hands[seat] || []).concat(room.talon);
       room.turnSeat = seat;
+      scheduleTurnTimer(room);
 
       emitRoom(room, { note: "TAKE_SELECTED" });
       return ack?.({ ok: true });
@@ -1762,11 +1972,13 @@ io.on("connection", (socket) => {
 
     if (room.trickPlays.length < 3) {
       room.turnSeat = nextSeatCW(room.turnSeat);
+      scheduleTurnTimer(room);
       emitRoom(room, { note: "PLAY" });
       return;
     }
 
     // 3. kārts: vispirms parādām pilnu stiķi visiem, tad pēc pauzes tikai izrēķinam uzvarētāju
+    clearTurnTimer(room);
     room.trickPauseUntil = Date.now() + TRICK_PAUSE_MS;
     emitRoom(room, { note: "TRICK_COMPLETE" });
 
@@ -1791,6 +2003,7 @@ io.on("connection", (socket) => {
         room.trickPlays = [];
         room.leaderSeat = winnerSeat;
         room.turnSeat = winnerSeat;
+        scheduleTurnTimer(room);
 
         if (room.contract === CONTRACT_GALDS) {
           room.galdsTrickNo += 1;

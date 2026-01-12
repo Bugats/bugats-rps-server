@@ -1157,7 +1157,17 @@ body.zl-game #felt.zg-felt{
   }
   .zg-right{ gap: 8px; flex-wrap: wrap; }
   .zg-brand{ display:none; } /* lieks uz maza ekrāna */
-  .zg-status{ display:none; } /* lai netraucē kārtīm uz mobīlā */
+  /* status + taimeris: vajag redzēt 25s gājienu */
+  .zg-status{
+    display: inline-flex;
+    max-width: 62vw;
+    padding: 4px 8px;
+    font-size: 12px;
+    opacity: 0.92;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* pogas mazākas, lai redz kārtis */
   .zg-ready, .zg-btn, .zg-leave{

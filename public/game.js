@@ -90,6 +90,9 @@ const TRICK_HIDE_MS = 2500;
 let _trickHold = null; // { key: string, plays: Array<{seat,card}>, hideAt: number }
 let _trickAutoHideTimer = 0;
 
+// Turn taimeris UI (server sūta turnEndsAt)
+let _turnUiTicker = 0;
+
 // Hand UX: nobīde, lai nekas neiet ārā no ekrāna (mobile īpaši DISCARD)
 let _handClampRaf = 0;
 let _handShiftPx = 0;
@@ -1647,6 +1650,32 @@ function showToast(text) {
   }, 7000);
 }
 
+function syncTurnCountdown() {
+  if (!statusChip) return;
+  const base = statusChip.dataset?.base || statusChip.textContent || "";
+  const ends = Number(roomState?.turnEndsAt || 0) || 0;
+
+  if (!ends) {
+    statusChip.textContent = base;
+    return;
+  }
+
+  const leftSec = Math.max(0, Math.ceil((ends - Date.now()) / 1000));
+  statusChip.textContent = base ? `${base} • ${leftSec}s` : `${leftSec}s`;
+}
+
+function startTurnUiTicker() {
+  if (_turnUiTicker) return;
+  _turnUiTicker = setInterval(() => {
+    try {
+      if (!roomState) return;
+      if (!statusChip) return;
+      if (!roomState.turnEndsAt) return;
+      syncTurnCountdown();
+    } catch {}
+  }, 250);
+}
+
 function renderAll() {
   try {
     if (stateBox) stateBox.textContent = roomState ? JSON.stringify(roomState, null, 2) : "—";
@@ -1692,15 +1721,19 @@ function renderAll() {
       const turnName =
         typeof roomState?.turnSeat === "number" ? nameBySeat(roomState.turnSeat) : "—";
       const showContract = roomState?.phase !== "LOBBY";
+      let base = "";
       if (showContract && isGaldinsContract(roomState?.contract)) {
-        statusChip.textContent = `${ph} • GALDIŅŠ (visi GARĀM) • GĀJIENS: ${turnName}`;
+        base = `${ph} • GALDIŅŠ (visi GARĀM) • GĀJIENS: ${turnName}`;
       } else {
         const follow = currentFollowInfo();
-        statusChip.textContent =
+        base =
           showContract && c && c !== "—"
             ? `${ph} • ${c} • LIELAIS: ${bigName} • GĀJIENS: ${turnName}${follow ? ` • JĀIET: ${follow.label}` : ""}`
             : `${ph} • GĀJIENS: ${turnName}${follow ? ` • JĀIET: ${follow.label}` : ""}`;
       }
+      statusChip.dataset.base = base;
+      statusChip.textContent = base;
+      syncTurnCountdown();
     }
   } catch {}
 
@@ -2017,6 +2050,11 @@ function boot() {
         renderMiniPtsHud();
       });
     }
+  } catch {}
+
+  // Turn taimeris (25s) — redzams status čipā
+  try {
+    startTurnUiTicker();
   } catch {}
 
   connect();
