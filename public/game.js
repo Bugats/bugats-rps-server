@@ -91,6 +91,9 @@ let _trickHold = null; // { plays: Array<{seat,card}>, until: number }
 let _handClampRaf = 0;
 let _handShiftPx = 0;
 
+// Bankrots: ja PTS nokrīt līdz 0, izvedam uz lobby (tikai lokāli)
+let _bustedHandled = false;
+
 function clampHandToViewport() {
   if (!handEl) return;
   if (_handClampRaf) return;
@@ -692,12 +695,6 @@ function ensureMiniPtsHud() {
 #miniPtsHud .mph-pos{ color:#7CFFB2; }
 #miniPtsHud .mph-neg{ color:#FF7C7C; }
 
-#miniPtsHud .mph-total{
-  margin-top:2px;
-  padding-top:6px;
-  border-top:1px solid rgba(255,255,255,0.14);
-}
-#miniPtsHud .mph-kopa{ font-weight:900; }
 `;
     document.head.appendChild(st);
   }
@@ -731,7 +728,7 @@ function renderMiniPtsHud() {
               ? "Rezultāts"
               : String(roomState?.phase || "—");
 
-  let html = `<div class="mph-title"><b>PTS</b><span class="mph-muted">${escapeHtml(
+  let html = `<div class="mph-title"><b>ΔPTS</b><span class="mph-muted">${escapeHtml(
     phaseTxt
   )}</span></div>`;
   html += `<div class="mph-grid">`;
@@ -771,15 +768,6 @@ function renderMiniPtsHud() {
       html += `<div class="mph-cell mph-val ${clsC}">${escapeHtml(fmtSigned(dC))}</div>`;
     }
   }
-
-  const totA = Number(playerBySeat(cols[0])?.matchPts ?? 0) || 0;
-  const totB = Number(playerBySeat(cols[1])?.matchPts ?? 0) || 0;
-  const totC = Number(playerBySeat(cols[2])?.matchPts ?? 0) || 0;
-
-  html += `<div class="mph-cell mph-total mph-kopa">KOPĀ</div>`;
-  html += `<div class="mph-cell mph-total mph-val">${escapeHtml(fmtPts(totA))}</div>`;
-  html += `<div class="mph-cell mph-total mph-val">${escapeHtml(fmtPts(totB))}</div>`;
-  html += `<div class="mph-cell mph-total mph-val">${escapeHtml(fmtPts(totC))}</div>`;
 
   html += `</div>`;
   el.innerHTML = html;
@@ -1074,7 +1062,6 @@ function renderPlayerCard(p, whereLabel) {
       <div class="zg-nameblock">
         <div class="zg-name">${bigIcon}${turnIcon}${escapeHtml(p.username)}</div>
         <div class="zg-subline">
-          <span class="zg-pts">PTS: ${escapeHtml(pts)}</span>
           ${badges ? `<span class="zg-badges">${badges}</span>` : ""}
         </div>
       </div>
@@ -1785,6 +1772,21 @@ socket = io({
       const txt = buildResultText(st.lastResult);
       if (txt) showToast(txt);
     }
+
+    // Ja PTS nokrīt līdz 0, paziņojam un izvedam uz lobby (tikai šim klientam)
+    try {
+      if (!_bustedHandled && typeof mySeat === "number") {
+        const me = (st?.players || []).find((p) => p.seat === mySeat) || null;
+        const pts = typeof me?.matchPts === "number" ? me.matchPts : null;
+        if (typeof pts === "number" && pts <= 0) {
+          _bustedHandled = true;
+          showToast("PTS=0 — tu izkriti no spēles. (atgriež uz Lobby)");
+          setTimeout(() => {
+            try { leaveToLobby(); } catch {}
+          }, 900);
+        }
+      }
+    } catch {}
 
     renderAll();
     scheduleFit();

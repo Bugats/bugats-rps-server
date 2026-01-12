@@ -1435,3 +1435,12 @@ body.zl-game .zg-cardback{
 body.zl-game .zg-seat{
   width: var(--seat-w) !important;
 }
+
+/* MINI PTS HUD: neļaut cipariem “izkrist” ārā */
+#miniPtsHud .mph-grid{ min-width: 0; }
+#miniPtsHud .mph-head,
+#miniPtsHud .mph-val{
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
