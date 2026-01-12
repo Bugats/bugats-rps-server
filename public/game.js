@@ -1413,11 +1413,8 @@ function renderHand() {
     } catch {}
 
     // sākuma nobīde (precīzo korekciju pēc tam izdara clampHandToViewport)
-    const initialShift = isMobile
-      ? phaseNow === "DISCARD"
-        ? Math.round(cw * (n >= 10 ? 0.22 : 0.18))
-        : 10
-      : 0;
+    // pēc noklusējuma roka centrā; clampHandToViewport pabīda tikai ja vajag
+    const initialShift = 0;
     _handShiftPx = initialShift;
     handEl.style.setProperty("--hand-shift", `${initialShift}px`);
   } catch {}

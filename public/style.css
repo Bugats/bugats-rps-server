@@ -1193,7 +1193,7 @@ body.zl-game #felt.zg-felt{
     left: 50%;
     bottom: calc(0px + env(safe-area-inset-bottom, 0px));
     transform: translateX(-50%);
-    opacity: 0.92;
+    opacity: 1;
     z-index: 140; /* virs kārtīm (aizklāj apakšu) */
     pointer-events: none;
     filter: drop-shadow(0 10px 22px rgba(0,0,0,0.35));
@@ -1220,6 +1220,14 @@ body.zl-game #felt.zg-felt{
   color: var(--text);
   cursor:pointer;
   font-weight:900;
+}
+
+/* "TU" kartīte (mobīlā) - mazliet necaurspīdīgāka, lai izskatās kā aplikācijā */
+@media (max-width: 720px){
+  #zgMeDock .zg-seat{
+    background: rgba(0,0,0,0.62);
+    border-color: rgba(255,255,255,0.14);
+  }
 }
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);

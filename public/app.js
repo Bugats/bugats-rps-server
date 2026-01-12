@@ -16,6 +16,7 @@ const roomIdEl = $("#roomId");
 
 const btnCreate = $("#btnCreate");
 const btnJoin = $("#btnJoin");
+const btnLastRoom = $("#btnLastRoom");
 
 const errBox = $("#errBox");
 
@@ -441,6 +442,15 @@ async function boot() {
   if (avatarUrlEl) avatarUrlEl.value = prof.avatarUrl || (localStorage.getItem(K_AVATAR) || "");
   if (roomIdEl) roomIdEl.value = localStorage.getItem(K_LASTROOM) || "";
 
+  // "Pēdējā istaba" pogas teksts
+  try {
+    const last = normRoom(localStorage.getItem(K_LASTROOM) || "");
+    if (btnLastRoom) {
+      btnLastRoom.style.display = last ? "" : "none";
+      btnLastRoom.textContent = last ? `Pēdējā: ${last}` : "Pēdējā istaba";
+    }
+  } catch {}
+
   renderProfileBar(prof);
 
   // (optional) PTS refresh
@@ -450,6 +460,15 @@ async function boot() {
 
   if (btnCreate) btnCreate.addEventListener("click", () => joinRoom(true));
   if (btnJoin) btnJoin.addEventListener("click", () => joinRoom(false));
+  if (btnLastRoom) {
+    btnLastRoom.addEventListener("click", () => {
+      showErr("");
+      const last = normRoom(localStorage.getItem(K_LASTROOM) || "");
+      if (!last) return showErr("Nav saglabāta pēdējā istaba.");
+      if (roomIdEl) roomIdEl.value = last;
+      joinRoom(false);
+    });
+  }
 
   if (btnRefreshRooms) btnRefreshRooms.addEventListener("click", pullRooms);
   if (btnRefreshTop10) btnRefreshTop10.addEventListener("click", pullTop10);
