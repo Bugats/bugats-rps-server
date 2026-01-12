@@ -1302,8 +1302,11 @@ function renderHand() {
     handEl.style.setProperty("--overlap", `${ov}px`);
 
     // sākuma nobīde (precīzo korekciju pēc tam izdara clampHandToViewport)
-    const initialShift =
-      isMobile && phaseNow === "DISCARD" ? Math.round(cw * (n >= 10 ? 0.30 : 0.24)) : 0;
+    const initialShift = isMobile
+      ? phaseNow === "DISCARD"
+        ? Math.round(cw * (n >= 10 ? 0.30 : 0.24))
+        : 12
+      : 0;
     _handShiftPx = initialShift;
     handEl.style.setProperty("--hand-shift", `${initialShift}px`);
   } catch {}

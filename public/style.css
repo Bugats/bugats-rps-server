@@ -1292,7 +1292,6 @@ body.zl-game #felt.zg-felt{
     transform-origin: 50% 160px;
     transform:
       translateX(calc(var(--t, 0) * 18px))
-      rotate(calc(var(--t, 0) * 5deg))
       translateY(10px);
     transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
   }
@@ -1308,7 +1307,6 @@ body.zl-game #felt.zg-felt{
   body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
     transform:
       translateX(calc(var(--t, 0) * 18px))
-      rotate(calc(var(--t, 0) * 5deg))
       translateY(-12px);
     z-index: 9999;
   }
@@ -1316,7 +1314,6 @@ body.zl-game #felt.zg-felt{
   body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected{
     transform:
       translateX(calc(var(--t, 0) * 18px))
-      rotate(calc(var(--t, 0) * 5deg))
       translateY(-18px);
     z-index: 9999;
   }
