@@ -1050,6 +1050,13 @@ function renderPlayerCard(p, whereLabel) {
   const act = seatActionLabel(p.seat);
   const actBadge = act ? `<span class="zg-badge zg-badge-on">${escapeHtml(act)}</span>` : "";
 
+  const turnSeat = roomState?.turnSeat;
+  const isTurn = typeof turnSeat === "number" && turnSeat === p.seat && roomState?.phase !== "LOBBY";
+  const turnIcon = isTurn ? `<span class="zg-ico zg-ico-turn" title="Gājiens">▶</span>` : "";
+
+  const isBig = typeof big === "number" && big === p.seat && !isGaldinsContract(c);
+  const bigIcon = isBig ? `<span class="zg-ico zg-ico-big" title="LIELAIS">★</span>` : "";
+
   const backs = Array.from({ length: Math.min(8, cardsLeft) })
     .map(() => `<span class="zg-back"></span>`)
     .join("");
@@ -1060,7 +1067,7 @@ function renderPlayerCard(p, whereLabel) {
     <div class="zg-seat-topline">
       <div class="${avatarWrapCls}">${avatarInner}</div>
       <div class="zg-nameblock">
-        <div class="zg-name">${escapeHtml(p.username)}</div>
+        <div class="zg-name">${bigIcon}${turnIcon}${escapeHtml(p.username)}</div>
         <div class="zg-subline">
           <span class="zg-pts">PTS: ${escapeHtml(pts)}</span>
           ${badges ? `<span class="zg-badges">${badges}</span>` : ""}

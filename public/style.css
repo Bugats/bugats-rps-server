@@ -233,6 +233,9 @@ body.zl-body, body.zg-body{
 .zg-name{
   font-weight:1000;
   letter-spacing:0.2px;
+  display:flex;
+  align-items:center;
+  gap:6px;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -251,6 +254,30 @@ body.zl-body, body.zg-body{
   align-items:center;
   gap:6px;
   flex-wrap:wrap;
+}
+
+/* Ikonas pie vārda */
+.zg-ico{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width: 18px;
+  height: 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.18);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.zg-ico-turn{
+  border-color: rgba(210,164,23,0.55);
+  background: rgba(210,164,23,0.16);
+  color: rgba(255,236,170,0.95);
+}
+.zg-ico-big{
+  border-color: rgba(57,217,138,0.55);
+  background: rgba(57,217,138,0.16);
+  color: rgba(220,255,236,0.95);
 }
 .zg-mini{ color: var(--muted); font-size:12px; }
 
@@ -1040,12 +1067,25 @@ body.zl-game #felt.zg-felt{
 
 /* pēdējais gājiens: izcelt + paturēt redzamu */
 .zg-trickwrap{ display: inline-block; }
+.zg-last-played{
+  animation: zgPopIn 180ms ease;
+}
 .zg-last-played .zg-card{
   outline: 3px solid rgba(210,164,23,0.85);
   outline-offset: 2px;
   box-shadow:
     0 22px 60px rgba(0,0,0,0.45),
     0 0 0 2px rgba(255,255,255,0.14) inset;
+}
+@keyframes zgPopIn{
+  from { transform: translateY(6px) scale(0.98); opacity: 0.88; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Stiķa slot foni (lai skaidri kur likt) */
+.zg-slot{
+  background: rgba(0,0,0,0.12);
+  border: 1px dashed rgba(255,255,255,0.16);
 }
 
 /* Player kartītes mazākas + tuvāk sienām (desktop) */
@@ -1238,13 +1278,20 @@ body.zl-game #felt.zg-felt{
   display: none; /* pēc noklusējuma slēpts, JS ieslēdz kad vajag */
 }
 .zg-talon.is-visible{ display: block; }
+.zg-talon-label{
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  opacity: 0.8;
+  margin: 0 0 6px;
+}
 .zg-talon-cards{
   display: flex;
-  gap: 10px;
+  gap: 0;
 }
 .zg-cardback{
-  width: 64px;
-  height: 92px;
+  width: 44px;
+  height: 64px;
   border-radius: 0;
   border: 1px solid rgba(255,255,255,0.18);
   background:
@@ -1258,6 +1305,9 @@ body.zl-game #felt.zg-felt{
     );
   box-shadow: 0 14px 30px rgba(0,0,0,0.30);
 }
+.zg-talon-cards .zg-cardback + .zg-cardback{
+  margin-left: -18px;
+}
 
 @media (max-width: 720px){
   /* 2 galda kārtis pārvietojam zem header */
@@ -1267,8 +1317,8 @@ body.zl-game #felt.zg-felt{
     transform: none;
   }
   .zg-cardback{
-    width: 56px;
-    height: 82px;
+    width: 40px;
+    height: 58px;
   }
 }
 
