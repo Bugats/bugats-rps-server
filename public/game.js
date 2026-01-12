@@ -1388,7 +1388,7 @@ function renderHand() {
     const initialShift = isMobile
       ? phaseNow === "DISCARD"
         ? Math.round(cw * (n >= 10 ? 0.34 : 0.26))
-        : 14
+        : 22
       : 0;
     _handShiftPx = initialShift;
     handEl.style.setProperty("--hand-shift", `${initialShift}px`);
