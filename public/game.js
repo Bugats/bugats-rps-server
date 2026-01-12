@@ -59,6 +59,7 @@ const logBox = $("#logBox");
 
 const btnLeaveToLobby = $("#btnLeaveToLobby");
 const btnReadyToggle = $("#btnReadyToggle");
+const btnPtsToggle = $("#btnPtsToggle");
 
 // FULLSCREEN poga (no game.html)
 const btnFullscreen = $("#btnFullscreen");
@@ -93,6 +94,22 @@ let _handShiftPx = 0;
 
 // Bankrots: ja PTS nokrīt līdz 0, izvedam uz lobby (tikai lokāli)
 let _bustedHandled = false;
+
+// PTS HUD toggle (lai netraucē uz mobīlā)
+let _showPtsHud = true;
+try {
+  const saved = localStorage.getItem("zole_showPtsHud");
+  if (saved === "0") _showPtsHud = false;
+  if (saved === "1") _showPtsHud = true;
+} catch {}
+
+function isLandscape() {
+  try {
+    return window.matchMedia && window.matchMedia("(orientation: landscape)").matches;
+  } catch {
+    return false;
+  }
+}
 
 function clampHandToViewport() {
   if (!handEl) return;
@@ -717,6 +734,22 @@ function ensureMiniPtsHud() {
 
 function renderMiniPtsHud() {
   const el = ensureMiniPtsHud();
+
+  // Uz mobīlā pēc noklusējuma slēpjam (lai netraucē), bet landscape var rādīt
+  try {
+    const isMobile =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(max-width: 720px)").matches
+        : false;
+    if (isMobile && localStorage.getItem("zole_showPtsHud") == null) {
+      _showPtsHud = isLandscape(); // portrait: off, landscape: on
+    }
+  } catch {}
+
+  if (!_showPtsHud) {
+    el.style.display = "none";
+    return;
+  }
 
   if (!roomState || typeof mySeat !== "number") {
     el.style.display = "none";
@@ -1920,6 +1953,20 @@ function boot() {
       // READY jau īss; atstājam
     }
   } catch {}
+
+  // PTS toggle poga
+  try {
+    if (btnPtsToggle) {
+      btnPtsToggle.addEventListener("click", () => {
+        _showPtsHud = !_showPtsHud;
+        try {
+          localStorage.setItem("zole_showPtsHud", _showPtsHud ? "1" : "0");
+        } catch {}
+        renderMiniPtsHud();
+      });
+    }
+  } catch {}
+
   connect();
 }
 

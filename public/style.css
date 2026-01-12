@@ -1209,6 +1209,18 @@ body.zl-game #felt.zg-felt{
     border-radius: 16px 16px 0 0;
     pointer-events:none;
   }
+
+/* PTS toggle poga */
+.zg-btn{
+  height:38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  cursor:pointer;
+  font-weight:900;
+}
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);
     transform-origin: bottom center;
@@ -1276,6 +1288,17 @@ body.zl-game #felt.zg-felt{
   }
   #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
   #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
+}
+
+/* Landscape (gareniski): kā aplikācijā — vairāk vietas galdam, HUD mazs */
+@media (max-width: 920px) and (orientation: landscape){
+  #miniPtsHud{
+    right: 6px !important;
+    width: 110px !important;
+  }
+  body.zl-game #zgBottomStack #hand{
+    height: min(48vh, calc(var(--card-w, 96px) * 1.46 + 52px)) !important;
+  }
 }
 
 /* Desktop: topbar mazāks */
