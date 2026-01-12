@@ -1332,11 +1332,11 @@ function renderHand() {
       );
 
     // Fullscreen: palielinam kārtis, bet joprojām turam fit (cwFit ierobežo).
-    const fsMult = isFs ? 1.18 : 1.0;
+    const fsMult = isFs ? 1.32 : 1.0;
 
     // Mobilajā gribam lielākas kārtis, bet tikai tik daudz, lai vienmēr ietilpst.
     const base = Math.round((isMobile ? 112 : 120) * fsMult);
-    const minW = Math.round((isMobile ? 78 : 82) * (isFs ? 1.10 : 1.0));
+    const minW = Math.round((isMobile ? 78 : 82) * (isFs ? 1.16 : 1.0));
 
     const phaseNow = String(roomState.phase || "");
     const ratio =
