@@ -118,6 +118,9 @@
           <div class="zl-row">
             <button id="btnCreate" class="zl-btn zl-primary" type="button">Izveidot istabu</button>
             <button id="btnJoin" class="zl-btn" type="button">Pievienoties</button>
+            <button id="btnQuick" class="zl-btn zl-primary" type="button" title="Ātrā spēle — iemet pirmajā brīvajā istabā">
+              Ātrā spēle
+            </button>
             <button id="btnLastRoom" class="zl-btn" type="button" title="Pievienoties pēdējai istabai">
               Pēdējā istaba
             </button>
@@ -147,7 +150,12 @@
           <div style="height:16px;"></div>
 
           <div class="zl-row" style="align-items:center; justify-content:space-between;">
-            <div style="font-weight:800;">TOP 10</div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="font-weight:800;">TOP 10</div>
+              <button id="btnTopAll" class="zl-btn" type="button" title="Visu laiku">Visu laiku</button>
+              <button id="btnTopMonth" class="zl-btn" type="button" title="Šomēnes">Šomēnes</button>
+              <button id="btnTopWeek" class="zl-btn" type="button" title="Šonedēļ">Šonedēļ</button>
+            </div>
             <button id="btnRefreshTop10" class="zl-btn" type="button">Atjaunināt</button>
           </div>
 

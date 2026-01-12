@@ -17,6 +17,7 @@ const roomIdEl = $("#roomId");
 const btnCreate = $("#btnCreate");
 const btnJoin = $("#btnJoin");
 const btnLastRoom = $("#btnLastRoom");
+const btnQuick = $("#btnQuick");
 
 const errBox = $("#errBox");
 
@@ -27,6 +28,9 @@ const roomsList = $("#roomsList");
 const btnRefreshTop10 = $("#btnRefreshTop10");
 const top10Empty = $("#top10Empty");
 const top10List = $("#top10List");
+const btnTopAll = $("#btnTopAll");
+const btnTopMonth = $("#btnTopMonth");
+const btnTopWeek = $("#btnTopWeek");
 
 // Profile UI
 const profileNameEl = $("#profileName");
@@ -43,6 +47,7 @@ const K_AVATAR = "zole_avatarUrl";
 const K_PTS = "zole_pts";
 const K_SEED = "zole_seed";
 const K_LASTROOM = "zole_lastRoom";
+const K_LBSCOPE = "zole_lbScope";
 
 // socket
 let socket = null;
@@ -253,8 +258,31 @@ function connectSocketAndSubscribe() {
   });
 
   socket.on("leaderboard:update", (payload) => {
-    renderTop10(payload?.top10 || payload || []);
+    const scope = getLbScope();
+    if (scope === "week" && Array.isArray(payload?.top10Week)) return renderTop10(payload.top10Week);
+    if (scope === "month" && Array.isArray(payload?.top10Month))
+      return renderTop10(payload.top10Month);
+    renderTop10(payload?.top10All || payload?.top10 || payload || []);
   });
+}
+
+function getLbScope() {
+  try {
+    const s = String(localStorage.getItem(K_LBSCOPE) || "all").toLowerCase();
+    if (s === "week" || s === "month") return s;
+  } catch {}
+  return "all";
+}
+function setLbScope(scope) {
+  const s = scope === "week" || scope === "month" ? scope : "all";
+  try {
+    localStorage.setItem(K_LBSCOPE, s);
+  } catch {}
+  try {
+    btnTopAll?.classList?.toggle("zl-primary", s === "all");
+    btnTopMonth?.classList?.toggle("zl-primary", s === "month");
+    btnTopWeek?.classList?.toggle("zl-primary", s === "week");
+  } catch {}
 }
 
 function pullRooms() {
@@ -319,8 +347,9 @@ function renderRooms(rooms) {
 }
 
 function pullTop10() {
+  const scope = getLbScope();
   if (socket && socket.connected) {
-    socket.emit("leaderboard:top10", {}, (res) => {
+    socket.emit("leaderboard:top10", { scope }, (res) => {
       if (res?.ok && Array.isArray(res.top10)) {
         renderTop10(res.top10);
         return;
@@ -333,7 +362,11 @@ function pullTop10() {
 }
 async function pullTop10HttpFallback() {
   try {
-    const r = await fetch(`${API_BASE}/leaderboard`, { credentials: "include", cache: "no-store" });
+    const scope = getLbScope();
+    const r = await fetch(`${API_BASE}/leaderboard?scope=${encodeURIComponent(scope)}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
     if (!r.ok) return;
     const data = await r.json();
     if (Array.isArray(data?.top10)) renderTop10(data.top10);
@@ -349,13 +382,19 @@ function renderTop10(list) {
   if (top10Empty) top10Empty.style.display = arr.length ? "none" : "block";
 
   const me = loadProfileFromStorage().username;
+  const scope = getLbScope();
 
   for (const row of arr) {
     const li = document.createElement("li");
     li.className = "zl-top10-item";
 
     const name = safeNick(row.username || row.name || "—");
-    const pts = Number(row.pts ?? row.points ?? row.matchPts ?? 0) || 0;
+    const pts =
+      scope === "week"
+        ? Number(row.weekPts ?? row.pts ?? row.points ?? row.matchPts ?? 0) || 0
+        : scope === "month"
+          ? Number(row.monthPts ?? row.pts ?? row.points ?? row.matchPts ?? 0) || 0
+          : Number(row.pts ?? row.points ?? row.matchPts ?? 0) || 0;
 
     li.innerHTML = `<span style="font-weight:900;">${name}</span>
       <span style="opacity:.9;">${pts}</span>`;
@@ -415,6 +454,36 @@ function joinRoom(isCreate) {
   createOrJoinRoom(!!isCreate);
 }
 
+function quickPlay() {
+  const prof = loadProfileFromStorage();
+  if (!prof.username) {
+    logoutAndGoAuth();
+    return;
+  }
+
+  showErr("");
+  const avatarUrl = safeAvatar(avatarUrlEl?.value || prof.avatarUrl || "");
+  localStorage.setItem(K_AVATAR, avatarUrl);
+
+  let seed = localStorage.getItem(K_SEED) || "";
+  if (!seed) {
+    seed = seedGen();
+    localStorage.setItem(K_SEED, seed);
+  }
+
+  if (!socket || !socket.connected) return showErr("Nav Socket.IO savienojuma.");
+
+  socket.emit("room:quick", { username: prof.username, avatarUrl, seed }, (res) => {
+    if (!res?.ok) return showErr(res?.error || "QUICK_FAILED");
+    const roomId = normRoom(res.roomId || "");
+    if (!roomId) return showErr("QUICK_FAILED");
+    try {
+      localStorage.setItem(K_LASTROOM, roomId);
+    } catch {}
+    location.href = `./game.html?room=${encodeURIComponent(roomId)}`;
+  });
+}
+
 async function boot() {
   if (window.__zlBooted) return;
   window.__zlBooted = true;
@@ -460,6 +529,7 @@ async function boot() {
 
   if (btnCreate) btnCreate.addEventListener("click", () => joinRoom(true));
   if (btnJoin) btnJoin.addEventListener("click", () => joinRoom(false));
+  if (btnQuick) btnQuick.addEventListener("click", () => quickPlay());
   if (btnLastRoom) {
     btnLastRoom.addEventListener("click", () => {
       showErr("");
@@ -472,6 +542,23 @@ async function boot() {
 
   if (btnRefreshRooms) btnRefreshRooms.addEventListener("click", pullRooms);
   if (btnRefreshTop10) btnRefreshTop10.addEventListener("click", pullTop10);
+
+  // Top10 “sezona”
+  try {
+    setLbScope(getLbScope());
+    btnTopAll?.addEventListener("click", () => {
+      setLbScope("all");
+      pullTop10();
+    });
+    btnTopMonth?.addEventListener("click", () => {
+      setLbScope("month");
+      pullTop10();
+    });
+    btnTopWeek?.addEventListener("click", () => {
+      setLbScope("week");
+      pullTop10();
+    });
+  } catch {}
 
   if (avatarUrlEl) {
     avatarUrlEl.addEventListener("change", () => {

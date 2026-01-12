@@ -181,6 +181,55 @@ ensureDir(DATA_DIR);
 let LB = readJson(LB_PATH, { players: {} });
 // LB.players[username] = { username, avatarUrl, pts, hands, updatedAt }
 
+function isoWeekKey(ts = Date.now()) {
+  // YYYY-Www (ISO nedēļa)
+  const d = new Date(ts);
+  // UTC, lai nebūtu “svētdiena/pirmdiena” laika zonas gļuki
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = date.getUTCDay() || 7; // 1..7 (Mon..Sun)
+  // uz ceturtdienu (ISO nedēļa definēta pēc ceturtdienas)
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+  const y = date.getUTCFullYear();
+  return `${y}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function monthKey(ts = Date.now()) {
+  const d = new Date(ts);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function ensureSeasonFields(p, ts = Date.now()) {
+  let changed = false;
+  const wk = isoWeekKey(ts);
+  const mk = monthKey(ts);
+
+  if (p.weekKey !== wk) {
+    p.weekKey = wk;
+    p.weekPts = 0;
+    changed = true;
+  }
+  if (p.monthKey !== mk) {
+    p.monthKey = mk;
+    p.monthPts = 0;
+    changed = true;
+  }
+
+  if (typeof p.weekPts !== "number" || !Number.isFinite(p.weekPts)) {
+    p.weekPts = 0;
+    changed = true;
+  }
+  if (typeof p.monthPts !== "number" || !Number.isFinite(p.monthPts)) {
+    p.monthPts = 0;
+    changed = true;
+  }
+
+  return changed;
+}
+
 function lbSave() {
   writeJson(LB_PATH, LB);
 }
@@ -201,6 +250,10 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
           ? initPtsIfNew
           : START_PTS,
       hands: 0,
+      weekKey: isoWeekKey(now),
+      weekPts: 0,
+      monthKey: monthKey(now),
+      monthPts: 0,
       updatedAt: now,
     };
     LB.players[username] = p;
@@ -221,6 +274,8 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
     p.hands = 0;
     changed = true;
   }
+
+  if (ensureSeasonFields(p, now)) changed = true;
 
   p.updatedAt = now;
   return { player: p, changed };
@@ -244,6 +299,10 @@ function lbApplyDeltas(roomPlayers, deltasByUsername) {
 
     if (d !== 0) {
       player.pts = Number(player.pts || 0) + d;
+      // sezona: krājam tikai šīs nedēļas / šī mēneša izmaiņas
+      if (ensureSeasonFields(player, player.updatedAt)) any = true;
+      player.weekPts = Number(player.weekPts || 0) + d;
+      player.monthPts = Number(player.monthPts || 0) + d;
     } else if (changed) {
       any = true;
     }
@@ -252,11 +311,16 @@ function lbApplyDeltas(roomPlayers, deltasByUsername) {
   if (any) lbSave();
 }
 
-function lbTop10() {
+function lbTop10(scope = "all") {
   const arr = Object.values(LB.players || {});
+  const pick = (p) => {
+    if (scope === "week") return Number(p.weekPts || 0) || 0;
+    if (scope === "month") return Number(p.monthPts || 0) || 0;
+    return Number(p.pts || 0) || 0;
+  };
   arr.sort(
     (a, b) =>
-      Number(b.pts || 0) - Number(a.pts || 0) ||
+      pick(b) - pick(a) ||
       Number(b.hands || 0) - Number(a.hands || 0) ||
       String(a.username || "").localeCompare(String(b.username || ""))
   );
@@ -274,9 +338,19 @@ function lbPts(username) {
 // Leaderboard routes (aliases)
 app.get(
   ["/leaderboard", "/api/leaderboard", "/auth/leaderboard", "/api/auth/leaderboard"],
-  (_req, res) => {
-    const top10 = lbTop10();
-    res.json({ ok: true, top10, top: top10, ts: Date.now() });
+  (req, res) => {
+    const scopeRaw = String(req.query?.scope || "all").toLowerCase();
+    const scope = scopeRaw === "week" || scopeRaw === "month" ? scopeRaw : "all";
+    const top10 = lbTop10(scope);
+    res.json({
+      ok: true,
+      scope,
+      weekKey: isoWeekKey(),
+      monthKey: monthKey(),
+      top10,
+      top: top10,
+      ts: Date.now(),
+    });
   }
 );
 
@@ -541,8 +615,19 @@ const io = new Server(server, {
 
 function broadcastLeaderboardUpdate() {
   try {
-    const top10 = lbTop10();
-    io.emit("leaderboard:update", { top10, top: top10, ts: Date.now() });
+    const top10All = lbTop10("all");
+    const top10Week = lbTop10("week");
+    const top10Month = lbTop10("month");
+    io.emit("leaderboard:update", {
+      top10: top10All, // backwards compat
+      top: top10All,
+      top10All,
+      top10Week,
+      top10Month,
+      weekKey: isoWeekKey(),
+      monthKey: monthKey(),
+      ts: Date.now(),
+    });
   } catch {}
 }
 
@@ -1632,8 +1717,20 @@ io.on("connection", (socket) => {
   socket.on("leaderboard:top10", (a, b) => {
     const ack = typeof a === "function" ? a : (typeof b === "function" ? b : null);
     try {
-      const top10 = lbTop10();
-      ack && ack({ ok: true, top10, top: top10, ts: Date.now() });
+      const payload = typeof a === "object" && a && typeof a !== "function" ? a : {};
+      const scopeRaw = String(payload?.scope || "all").toLowerCase();
+      const scope = scopeRaw === "week" || scopeRaw === "month" ? scopeRaw : "all";
+      const top10 = lbTop10(scope);
+      ack &&
+        ack({
+          ok: true,
+          scope,
+          weekKey: isoWeekKey(),
+          monthKey: monthKey(),
+          top10,
+          top: top10,
+          ts: Date.now(),
+        });
     } catch {}
   });
 
@@ -1739,6 +1836,74 @@ io.on("connection", (socket) => {
       emitRoom(room, { note: "JOIN" });
     } catch {
       ack?.({ ok: false, error: "JOIN_FAILED" });
+    }
+  });
+
+  // Ātrā spēle: iemet pirmajā brīvajā istabā (vai izveido jaunu)
+  socket.on("room:quick", (payload, ack) => {
+    try {
+      const authed = authFromSocket();
+      const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
+      const avatarUrl =
+        safeAvatarUrl(payload?.avatarUrl) || (authed.ok ? authed.avatarUrl : "");
+      const clientSeed = String(payload?.seed || "").trim();
+
+      if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+
+      // atrodam pirmo “LOBBY” istabu ar brīvu vietu; prioritāte — kur jau ir 2 spēlētāji (ātrāk saliekas 3)
+      const candidates = [];
+      for (const r of rooms.values()) {
+        if (!r || !Array.isArray(r.players)) continue;
+        if (r.phase !== "LOBBY") continue;
+        const open = r.players.filter((p) => !p.username).length;
+        const occ = r.players.filter((p) => !!p.username).length;
+        if (open <= 0) continue;
+        candidates.push({ room: r, occ });
+      }
+      candidates.sort((a, b) => (b.occ || 0) - (a.occ || 0));
+
+      let room = null;
+      let seat = -1;
+      for (const c of candidates) {
+        const r = c.room;
+        const s = pickSeat(r, username);
+        if (s >= 0) {
+          room = r;
+          seat = s;
+          break;
+        }
+      }
+
+      if (!room) {
+        const roomId = randomRoomId();
+        room = getOrCreateRoom(roomId);
+        seat = pickSeat(room, username);
+        if (seat < 0) return ack?.({ ok: false, error: "ROOM_FULL" });
+      }
+
+      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+      if (!wasRejoin) room.players[seat].matchPts = getUserPts(room, username);
+
+      room.players[seat].username = username;
+      room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
+      room.players[seat].ready = true;
+      room.players[seat].connected = true;
+      room.players[seat].socketId = socket.id;
+      room.players[seat].seed =
+        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+
+      setUserPts(room, username, room.players[seat].matchPts);
+      const t = lbTouch(username, room.players[seat].avatarUrl, room.players[seat].matchPts);
+      if (t.changed) lbSave();
+
+      socket.join(room.roomId);
+      socket.data.roomId = room.roomId;
+      socket.data.seat = seat;
+
+      ack?.({ ok: true, roomId: room.roomId, seat });
+      emitRoom(room, { note: "JOIN" });
+    } catch {
+      ack?.({ ok: false, error: "QUICK_FAILED" });
     }
   });
 
