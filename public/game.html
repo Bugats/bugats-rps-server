@@ -36,6 +36,8 @@
             PTS
           </button>
 
+          <button id="btnHelp" class="zg-btn" title="Palīdzība / noteikumi">?</button>
+
           <button id="btnFullscreen" class="zg-btn" title="Pilnekrāna režīms">
             FULL
           </button>
@@ -48,6 +50,9 @@
         <section class="zg-felt" id="felt">
           <!-- Rezultāta toast -->
           <div id="resultToast" class="zg-toast" style="display: none"></div>
+
+          <!-- Īsie sistēmas paziņojumi (taimeris, auto-gājiens, u.c.) -->
+          <div id="hudToast" class="zg-hudtoast" style="display: none"></div>
 
           <!-- Spēlētāji (pretinieki augšā) -->
           <div class="zg-seat zg-top-left" id="seatLeft"></div>
@@ -98,6 +103,17 @@
             </div>
 
             <div class="zg-ov-note" id="overlayNote">—</div>
+          </div>
+
+          <!-- Palīdzība / Noteikumi -->
+          <div class="zg-help" id="helpModal" style="display: none" aria-hidden="true">
+            <div class="zg-help-card" role="dialog" aria-modal="true" aria-label="Zoles palīdzība">
+              <div class="zg-help-top">
+                <div class="zg-help-title">Zole — palīdzība</div>
+                <button class="zg-btn zg-help-close" id="btnHelpClose">Aizvērt</button>
+              </div>
+              <div class="zg-help-body" id="helpBody"></div>
+            </div>
           </div>
 
           <!-- Roka + info uz galda -->

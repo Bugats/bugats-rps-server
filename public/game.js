@@ -60,12 +60,18 @@ const logBox = $("#logBox");
 const btnLeaveToLobby = $("#btnLeaveToLobby");
 const btnReadyToggle = $("#btnReadyToggle");
 const btnPtsToggle = $("#btnPtsToggle");
+const btnHelp = $("#btnHelp");
 
 // FULLSCREEN poga (no game.html)
 const btnFullscreen = $("#btnFullscreen");
 
 // Rezultāta toast (to atstājam)
 const resultToast = $("#resultToast");
+const hudToast = $("#hudToast");
+
+const helpModal = $("#helpModal");
+const helpBody = $("#helpBody");
+const btnHelpClose = $("#btnHelpClose");
 
 let socket = null;
 let roomState = null;
@@ -1650,6 +1656,65 @@ function showToast(text) {
   }, 7000);
 }
 
+let _hudToastTimer = 0;
+function showHudToast(text, ms = 2500) {
+  if (!hudToast) return;
+  hudToast.textContent = String(text || "");
+  hudToast.style.display = "block";
+  if (_hudToastTimer) {
+    try { clearTimeout(_hudToastTimer); } catch {}
+    _hudToastTimer = 0;
+  }
+  _hudToastTimer = setTimeout(() => {
+    _hudToastTimer = 0;
+    try { hudToast.style.display = "none"; } catch {}
+  }, Math.max(600, Math.min(8000, ms | 0)));
+}
+
+function helpHtml() {
+  // īss, skaidrs “kā spēlē” latviski (publiskai spēlei)
+  return `
+    <h3>Trumpji (Zolē vienmēr)</h3>
+    <ul>
+      <li>Trumpji ir: <code>visas dāmas</code>, tad <code>visi kalpi</code>, tad <code>visi kāravi</code>.</li>
+      <li>Dāmas / kalpi pēc kārtības: <code>♣</code> → <code>♠</code> → <code>♥</code> → <code>♦</code>.</li>
+      <li>Kāravi pēc kārtības: <code>A</code> → <code>10</code> → <code>K</code> → <code>9</code> → <code>8</code> → <code>7</code>.</li>
+    </ul>
+
+    <h3>Jāiet mastā (atmešanās)</h3>
+    <ul>
+      <li>Ja prasa mastu (♠/♣/♥) un tev rokā ir šī masta <b>netrumpji</b> (A/10/K/9), tad <b>obligāti</b> jāliek tas masts.</li>
+      <li>Dāmas/kalpi vienmēr ir trumpji, tātad tie <b>neskaitās</b> kā “iet mastā”.</li>
+      <li>Ja nav prasītā masta, drīkst <b>pārsist ar trumpi</b> vai <b>atmesties</b>.</li>
+    </ul>
+
+    <h3>Taimeris</h3>
+    <ul>
+      <li>Katram gājienam ir <b>25 sekundes</b>. Ja laiks beidzas, spēle izdara <b>auto-gājienu</b> (vājāko legālo).</li>
+      <li>Ja kāds uztaisa refresh/atvienojas, spēle turpinās — viņš var pārpievienoties ar to pašu niku.</li>
+    </ul>
+
+    <h3>Punkti</h3>
+    <ul>
+      <li>Sākumā katram: <b>1000 PTS</b>.</li>
+      <li>Pēc katras partijas punktu izmaiņa tiek parādīta rezultātā.</li>
+    </ul>
+  `.trim();
+}
+
+function openHelp() {
+  if (!helpModal || !helpBody) return;
+  helpBody.innerHTML = helpHtml();
+  helpModal.style.display = "grid";
+  helpModal.setAttribute("aria-hidden", "false");
+}
+
+function closeHelp() {
+  if (!helpModal) return;
+  helpModal.style.display = "none";
+  helpModal.setAttribute("aria-hidden", "true");
+}
+
 function syncTurnCountdown() {
   if (!statusChip) return;
   const base = statusChip.dataset?.base || statusChip.textContent || "";
@@ -1849,7 +1914,7 @@ socket = io({
 
   socket.on("server:hello", () => log("server: hello OK"));
 
-  socket.on("room:state", (st) => {
+  socket.on("room:state", (st, extra) => {
     const prevTrick = Array.isArray(roomState?.trickPlays) ? roomState.trickPlays : [];
     const prevMap = new Map();
     try {
@@ -1862,6 +1927,20 @@ socket = io({
 
     roomState = st;
     if (typeof st?.mySeat === "number") mySeat = st.mySeat;
+
+    // īsie paziņojumi (taimeris, auto-gājiens, u.c.)
+    try {
+      const note = String(extra?.note || "").trim();
+      if (note) {
+        const map = {
+          GARAM_TIMEOUT: "Taimeris: GARĀM (auto)",
+          DISCARD_TIMEOUT_AUTO: "Taimeris: noraksts (auto)",
+          PLAY_TIMEOUT_AUTO: "Taimeris: auto-gājiens",
+          DISCONNECT: "Kāds atvienojās (spēle turpinās)",
+        };
+        if (map[note]) showHudToast(map[note], 2400);
+      }
+    } catch {}
 
     // Stiķa “auto-hide” notiek renderTrick() (lai nepagarinās ar papildu hold pēc servera pauzes).
 
@@ -2050,6 +2129,18 @@ function boot() {
         renderMiniPtsHud();
       });
     }
+  } catch {}
+
+  // Palīdzība / noteikumi
+  try {
+    btnHelp?.addEventListener("click", openHelp);
+    btnHelpClose?.addEventListener("click", closeHelp);
+    helpModal?.addEventListener("click", (e) => {
+      if (e?.target === helpModal) closeHelp();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e?.key === "Escape") closeHelp();
+    });
   } catch {}
 
   // Turn taimeris (25s) — redzams status čipā
