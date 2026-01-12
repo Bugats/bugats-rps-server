@@ -1009,12 +1009,7 @@ function currentFollowInfo() {
     const lead = roomState.trickPlays[0]?.card;
     if (!lead) return null;
 
-    const trumpsEnabled = !isMazaContract(roomState.contract);
-    if (!trumpsEnabled) {
-      const sym = suitSym(String(lead.s || "").toUpperCase());
-      return { kind: "SUIT", label: sym, sym };
-    }
-
+    // Zolē trumpji ir vienmēr.
     const follow = isTrumpStd(lead) ? "TRUMP" : String(lead.s || "").toUpperCase();
     if (follow === "TRUMP") return { kind: "TRUMP", label: "TRUMPIS", sym: "♦" };
     const sym = suitSym(follow);

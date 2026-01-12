@@ -633,7 +633,7 @@ const CONTRACT_MAZA = "MAZĀ";
 const CONTRACT_GALDS = "GALDS";
 
 function rulesForContract(contract) {
-  if (contract === CONTRACT_MAZA) return { trumps: false };
+  // Zolē trumpji ir vienmēr (trumpju komplekts ir fiksēts; UI tos rāda ar ♦ simbolu uz kārts).
   return { trumps: true };
 }
 
