@@ -1189,12 +1189,25 @@ body.zl-game #felt.zg-felt{
 
   /* TU dock netraucē rokai */
   #zgMeDock{
-    width: min(220px, 66vw);
+    width: min(240px, 72vw);
     left: 50%;
-    bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(0px + env(safe-area-inset-bottom, 0px));
     transform: translateX(-50%);
-    opacity: 0.88;
-    z-index: 20; /* zem kārtīm */
+    opacity: 0.92;
+    z-index: 140; /* virs kārtīm (aizklāj apakšu) */
+    pointer-events: none;
+    filter: drop-shadow(0 10px 22px rgba(0,0,0,0.35));
+  }
+  #zgMeDock::before{
+    content:"";
+    position:absolute;
+    left: -12px;
+    right: -12px;
+    bottom: -6px;
+    height: 42px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.00), rgba(0,0,0,0.30));
+    border-radius: 16px 16px 0 0;
+    pointer-events:none;
   }
   #zgMeDock #seatBottom .zg-seat-inner{
     transform: scale(0.78);

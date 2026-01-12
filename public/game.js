@@ -1097,11 +1097,6 @@ function renderCardFace(c) {
     </div>
 
     <div class="zg-pip">${escapeHtml(sym)}</div>
-
-    <div class="zg-corner zg-br">
-      <div class="zg-crank">${rank}</div>
-      <div class="zg-csuit">${escapeHtml(sym)}</div>
-    </div>
   </div>`;
 }
 
