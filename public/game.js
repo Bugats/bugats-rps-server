@@ -85,8 +85,10 @@ let toastTimer = null;
 let _lastTapKey = "";
 let _lastTapAt = 0;
 
-// Trick UX: patur pēdējo stiķi redzamu īsu brīdi (lai pamanāms pēdējais gājiens)
-let _trickHold = null; // { plays: Array<{seat,card}>, until: number }
+// Trick UX: pēc 3. kārts stiķis ir pamanāms, bet pēc ~2.5s pazūd (nekarājas līdz nākamajam gājienam)
+const TRICK_HIDE_MS = 2500;
+let _trickHold = null; // { key: string, plays: Array<{seat,card}>, hideAt: number }
+let _trickAutoHideTimer = 0;
 
 // Hand UX: nobīde, lai nekas neiet ārā no ekrāna (mobile īpaši DISCARD)
 let _handClampRaf = 0;
@@ -1184,14 +1186,48 @@ function renderTrick() {
   if (slotRight) slotRight.innerHTML = "";
   if (slotBottom) slotBottom.innerHTML = "";
 
+  // ārpus PLAY stiķi nerādam (citādi “iestrēgst” uz ekrāna spēles beigās)
+  if (!roomState || roomState.phase !== "PLAY") {
+    _trickHold = null;
+    if (_trickAutoHideTimer) {
+      try { clearTimeout(_trickAutoHideTimer); } catch {}
+      _trickAutoHideTimer = 0;
+    }
+    return;
+  }
+
   const now = Date.now();
   const live = Array.isArray(roomState?.trickPlays) ? roomState.trickPlays : [];
-  const plays =
-    live.length > 0
-      ? live
-      : _trickHold && Array.isArray(_trickHold.plays) && now < _trickHold.until
-        ? _trickHold.plays
-        : [];
+  const trickKey = (arr) => {
+    try {
+      return (arr || [])
+        .map((p) => `${p?.seat ?? "?"}:${p?.card?.r ?? "?"}${p?.card?.s ?? "?"}`)
+        .join("|");
+    } catch {
+      return "";
+    }
+  };
+
+  // kad ir 3 kārtis, sākam lokālo “auto-hide” taimeri uz 2.5s
+  if (live.length === 3) {
+    const k = trickKey(live);
+    if (!_trickHold || _trickHold.key !== k) {
+      _trickHold = { key: k, plays: live.slice(), hideAt: now + TRICK_HIDE_MS };
+      if (_trickAutoHideTimer) {
+        try { clearTimeout(_trickAutoHideTimer); } catch {}
+        _trickAutoHideTimer = 0;
+      }
+      _trickAutoHideTimer = setTimeout(() => {
+        _trickAutoHideTimer = 0;
+        try { renderTrick(); } catch {}
+      }, TRICK_HIDE_MS + 40);
+    }
+  }
+
+  // ja auto-hide termiņš ir beidzies, neko nerādām (pat ja serveris vēl nav atsūtījis jaunu stāvokli)
+  if (live.length === 3 && _trickHold && now >= _trickHold.hideAt) return;
+
+  const plays = live.length > 0 ? live : [];
 
   if (!plays.length) return;
 
@@ -1794,15 +1830,7 @@ socket = io({
     roomState = st;
     if (typeof st?.mySeat === "number") mySeat = st.mySeat;
 
-    // ja stiķis tikko noslēdzās (3 kārtis -> 0), paturam to uz brīdi redzamu
-    try {
-      const nextTrick = Array.isArray(st?.trickPlays) ? st.trickPlays : [];
-      if (prevTrick.length === 3 && nextTrick.length === 0) {
-        _trickHold = { plays: prevTrick.slice(), until: Date.now() + 2400 };
-      } else if (nextTrick.length > 0) {
-        _trickHold = null;
-      }
-    } catch {}
+    // Stiķa “auto-hide” notiek renderTrick() (lai nepagarinās ar papildu hold pēc servera pauzes).
 
     const newTs = st?.lastResult?.ts || 0;
     const isNewResult = !!newTs && newTs !== lastShownResultTs;

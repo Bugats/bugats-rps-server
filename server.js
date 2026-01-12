@@ -115,7 +115,7 @@ const AUTO_NEXT_HAND_MS = Math.max(
 // Pauze pēc 3. kārts stiķī (lai visi paspēj redzēt)
 const TRICK_PAUSE_MS = Math.max(
   0,
-  Math.min(5000, parseInt(process.env.TRICK_PAUSE_MS || "1200", 10) || 1200)
+  Math.min(5000, parseInt(process.env.TRICK_PAUSE_MS || "2500", 10) || 2500)
 );
 
 // “Galda/Galdiņa” pamata likme
