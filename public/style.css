@@ -1019,13 +1019,15 @@ body.zl-game #felt.zg-felt{
 
   /* PTS tabula pa labi pa vidu */
   #miniPtsHud{
-    top: 50% !important;
+    top: clamp(54px, 50%, calc(100dvh - 54px)) !important;
     bottom: auto !important;
     right: 10px !important;
     width: 128px !important;
     transform: translateY(-50%) !important;
     opacity: 0.88;
     z-index: 40 !important; /* zem kārtīm/stiķa, lai nepārklāj */
+    max-height: calc(100dvh - 108px);
+    overflow: auto;
   }
 }
 
@@ -1233,15 +1235,17 @@ body.zl-game #felt.zg-felt{
 
   /* PTS tabula pa labi pa vidu (mazāka) */
   #miniPtsHud{
-    top: 50% !important;
+    top: clamp(64px, 50%, calc(100dvh - 64px)) !important;
     bottom: auto !important;
-    right: 4px !important;
+    right: max(4px, env(safe-area-inset-right, 0px)) !important;
     width: 118px !important;
     padding: 6px 6px 5px !important;
     border-radius: 10px !important;
     z-index: 40 !important; /* zem kārtīm/stiķa, lai nepārklāj */
     transform: translateY(-50%) !important;
     opacity: 0.88;
+    max-height: calc(100dvh - 128px);
+    overflow: auto;
   }
   #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
   #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
