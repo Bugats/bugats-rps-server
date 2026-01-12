@@ -938,7 +938,9 @@ function trumpStrengthStd(c) {
 
 function sortHandByStrength(hand, contract) {
   const h = (hand || []).slice();
-  const noTrumps = isMazaContract(contract);
+  // Zolē trumpji ir vienmēr, neatkarīgi no līguma nosaukuma.
+  // (Tāpēc roka vienmēr šķirojas ar trumpjiem priekšā.)
+  const noTrumps = false;
 
   h.sort((a, b) => {
     if (!a || !b) return 0;
