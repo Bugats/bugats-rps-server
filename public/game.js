@@ -1244,6 +1244,13 @@ function renderHand() {
 
     handEl.style.setProperty("--card-w", `${cw}px`);
     handEl.style.setProperty("--overlap", `${ov}px`);
+
+    // Mobilajā, DISCARD (10 kārtis): mazliet pabīdam pa labi, lai kreisā kārts neiziet ārā
+    const shift =
+      isMobile && phaseNow === "DISCARD"
+        ? Math.round(cw * (n >= 10 ? 0.22 : 0.18))
+        : 0;
+    handEl.style.setProperty("--hand-shift", `${shift}px`);
   } catch {}
 
   const contract = contractLabel(roomState.contract);

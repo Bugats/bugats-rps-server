@@ -1283,6 +1283,7 @@ body.zl-game #felt.zg-felt{
     /* neļaujam “scroll” režīmam uzvarēt */
     overflow-x: hidden !important;
     scroll-snap-type: none !important;
+    transform: translateX(var(--hand-shift, 0px)) !important;
   }
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn{
