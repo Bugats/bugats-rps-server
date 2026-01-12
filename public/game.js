@@ -87,6 +87,62 @@ let _lastTapAt = 0;
 // Trick UX: patur pēdējo stiķi redzamu īsu brīdi (lai pamanāms pēdējais gājiens)
 let _trickHold = null; // { plays: Array<{seat,card}>, until: number }
 
+// Hand UX: nobīde, lai nekas neiet ārā no ekrāna (mobile īpaši DISCARD)
+let _handClampRaf = 0;
+let _handShiftPx = 0;
+
+function clampHandToViewport() {
+  if (!handEl) return;
+  if (_handClampRaf) return;
+
+  _handClampRaf = requestAnimationFrame(() => {
+    _handClampRaf = 0;
+
+    try {
+      const isMobile =
+        typeof window !== "undefined" && window.matchMedia
+          ? window.matchMedia("(max-width: 720px)").matches
+          : false;
+      if (!isMobile) {
+        _handShiftPx = 0;
+        handEl.style.setProperty("--hand-shift", "0px");
+        return;
+      }
+
+      const buttons = Array.from(handEl.querySelectorAll("button.zg-cardbtn"));
+      if (!buttons.length) {
+        _handShiftPx = 0;
+        handEl.style.setProperty("--hand-shift", "0px");
+        return;
+      }
+
+      const pad = 6; // px drošības mala
+      const vw = Math.max(320, window.innerWidth || 0);
+
+      // paņemam reālo bbox (iekļauj transform/margin)
+      let leftMost = Infinity;
+      let rightMost = -Infinity;
+      for (const b of buttons) {
+        const r = b.getBoundingClientRect();
+        if (r.left < leftMost) leftMost = r.left;
+        if (r.right > rightMost) rightMost = r.right;
+      }
+
+      let shift = _handShiftPx || 0;
+
+      // ja iziet pa kreisi, bīdam pa labi
+      if (leftMost < pad) shift += Math.ceil(pad - leftMost);
+      // ja iziet pa labi, bīdam pa kreisi
+      if (rightMost > vw - pad) shift -= Math.ceil(rightMost - (vw - pad));
+
+      // saprātīgs limits
+      shift = Math.max(-220, Math.min(220, shift));
+      _handShiftPx = shift;
+      handEl.style.setProperty("--hand-shift", `${shift}px`);
+    } catch {}
+  });
+}
+
 /* ============================
    FULLSCREEN + AUTO-FIT (desktop + mobile where supported)
    ============================ */
@@ -1245,12 +1301,11 @@ function renderHand() {
     handEl.style.setProperty("--card-w", `${cw}px`);
     handEl.style.setProperty("--overlap", `${ov}px`);
 
-    // Mobilajā, DISCARD (10 kārtis): mazliet pabīdam pa labi, lai kreisā kārts neiziet ārā
-    const shift =
-      isMobile && phaseNow === "DISCARD"
-        ? Math.round(cw * (n >= 10 ? 0.22 : 0.18))
-        : 0;
-    handEl.style.setProperty("--hand-shift", `${shift}px`);
+    // sākuma nobīde (precīzo korekciju pēc tam izdara clampHandToViewport)
+    const initialShift =
+      isMobile && phaseNow === "DISCARD" ? Math.round(cw * (n >= 10 ? 0.30 : 0.24)) : 0;
+    _handShiftPx = initialShift;
+    handEl.style.setProperty("--hand-shift", `${initialShift}px`);
   } catch {}
 
   const contract = contractLabel(roomState.contract);
@@ -1335,6 +1390,7 @@ function renderHand() {
   }
 
   updateDiscardButtons();
+  clampHandToViewport();
 }
 
 /* ============================
