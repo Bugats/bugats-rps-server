@@ -1219,7 +1219,8 @@ body.zl-game #felt.zg-felt{
   }
   #zgBottomStack #hand{
     height: 170px;
-    overflow: hidden; /* visas kārtis redzamas uzreiz */
+    overflow-x: hidden; /* lai nekas neiet ārā pa sāniem */
+    overflow-y: visible; /* lai paceļot kārtis netiek nogriezts */
     padding: 0 10px 6px;
     gap: 0;
     justify-content: center !important; /* lai roka ir centrā */
@@ -1334,6 +1335,7 @@ body.zl-game #felt.zg-felt{
     overflow-x: hidden !important;
     scroll-snap-type: none !important;
     transform: translateX(var(--hand-shift, 0px)) !important;
+    overflow-y: visible !important;
   }
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn{
@@ -1367,4 +1369,14 @@ body.zl-game #felt.zg-felt{
       translateY(-18px);
     z-index: 9999;
   }
+}
+
+/* Fullscreen: mazliet vairāk vietas rokai (lai paceļot negriež) */
+body.zg-fullscreen #zgBottomStack #hand{
+  padding-top: 14px;
+}
+
+/* DISCARD: paceļot kārtis, lai nepazūd */
+#zgBottomStack #hand[data-phase="DISCARD"]{
+  padding-top: 18px;
 }

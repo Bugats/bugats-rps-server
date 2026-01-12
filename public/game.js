@@ -241,6 +241,11 @@ function syncFullscreenButton() {
   }
   btnFullscreen.style.display = "";
   btnFullscreen.textContent = isFullscreenNow() ? "EXIT" : "FULL";
+
+  // UI hooks (kārtis lielākas fullscreen)
+  try {
+    document.body.classList.toggle("zg-fullscreen", isFullscreenNow());
+  } catch {}
 }
 
 function initFullscreenAndFit() {
@@ -1282,6 +1287,13 @@ function renderHand() {
       typeof window !== "undefined" && window.matchMedia
         ? window.matchMedia("(max-width: 720px)").matches
         : false;
+    const isFs = (() => {
+      try {
+        return isFullscreenNow();
+      } catch {
+        return false;
+      }
+    })();
 
     const n = Math.max(1, handSorted.length);
     const rect = handEl.getBoundingClientRect();
@@ -1319,9 +1331,12 @@ function renderHand() {
           (isMobile ? vw - reserveLeft - reserveRight : vw - 80)
       );
 
+    // Fullscreen: palielinam kārtis, bet joprojām turam fit (cwFit ierobežo).
+    const fsMult = isFs ? 1.18 : 1.0;
+
     // Mobilajā gribam lielākas kārtis, bet tikai tik daudz, lai vienmēr ietilpst.
-    const base = isMobile ? 112 : 120;
-    const minW = isMobile ? 78 : 82;
+    const base = Math.round((isMobile ? 112 : 120) * fsMult);
+    const minW = Math.round((isMobile ? 78 : 82) * (isFs ? 1.10 : 1.0));
 
     const phaseNow = String(roomState.phase || "");
     const ratio =
