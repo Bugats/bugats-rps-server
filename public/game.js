@@ -1340,8 +1340,9 @@ function renderHand() {
     const minW = Math.round((isMobile ? 78 : 82) * (isFs ? 1.16 : 1.0));
 
     const phaseNow = String(roomState.phase || "");
+    // overlap koeficients (jo lielāks, jo ciešāk kārtis “saiet kopā”)
     const ratio =
-      phaseNow === "DISCARD" ? (isMobile ? 0.76 : 0.62) : isMobile ? 0.62 : 0.50;
+      phaseNow === "DISCARD" ? (isMobile ? 0.82 : 0.62) : isMobile ? 0.70 : 0.50;
 
     // cwFit nodrošina, ka n kartis ar overlap ietilpst avail
     const denom = n - (n - 1) * ratio;

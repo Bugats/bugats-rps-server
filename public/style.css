@@ -1360,32 +1360,29 @@ body.zl-game #felt.zg-felt{
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn{
     /* overlapped fan */
-    margin-left: -56px;
     transform-origin: 50% 160px;
     transform:
-      translateX(calc(var(--t, 0) * 18px))
+      translateX(calc(var(--t, 0) * 12px))
       translateY(0px);
     transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
   }
-  body.zl-game #zgBottomStack #hand .zg-cardbtn:first-child{
-    margin-left: 0;
-  }
 
   /* DISCARD: vairāk overlap, lai 10 kārtis ietilpst */
-  body.zl-game #zgBottomStack #hand[data-phase="DISCARD"] .zg-cardbtn{
-    margin-left: -68px;
+  body.zl-game #zgBottomStack #hand[data-phase="DISCARD"]{
+    /* vēl nedaudz ciešāk */
+    --overlap: calc(var(--overlap, 60px) + 12px);
   }
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
     transform:
-      translateX(calc(var(--t, 0) * 18px))
+      translateX(calc(var(--t, 0) * 12px))
       translateY(-14px);
     z-index: 9999;
   }
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected{
     transform:
-      translateX(calc(var(--t, 0) * 18px))
+      translateX(calc(var(--t, 0) * 12px))
       translateY(-22px);
     z-index: 9999;
   }
