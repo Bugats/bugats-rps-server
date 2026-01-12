@@ -487,7 +487,8 @@ body.zl-body, body.zg-body{
 .zg-hudtoast{
   position: absolute;
   left: 50%;
-  top: 62px;
+  /* zem topbar (mobile fixed header) + safe-area */
+  top: calc(var(--topbar-h, 0px) + env(safe-area-inset-top, 0px) + 10px);
   transform: translateX(-50%);
   padding: 8px 10px;
   border-radius: 12px;
@@ -513,7 +514,7 @@ body.zl-body, body.zg-body{
 
 /* Palīdzība / Noteikumi */
 .zg-help{
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 400;
   display: grid;
@@ -524,7 +525,7 @@ body.zl-body, body.zg-body{
 }
 .zg-help-card{
   width: min(860px, 96vw);
-  max-height: min(82vh, 720px);
+  max-height: min(calc(var(--vvh, 100dvh) - var(--topbar-h, 0px) - 26px), 720px);
   overflow: auto;
   border-radius: 16px;
   background: rgba(16,22,35,0.96);
