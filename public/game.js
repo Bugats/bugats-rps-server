@@ -1353,6 +1353,36 @@ function renderHand() {
     handEl.style.setProperty("--card-w", `${cw}px`);
     handEl.style.setProperty("--overlap", `${ov}px`);
 
+    // Globālie UI izmēri (standarta sistēma no --card-w)
+    try {
+      const root = document.documentElement;
+      const cardH = Math.round(cw * 1.4);
+      const trickW = Math.round(cw * 0.92);
+      const trickH = Math.round(trickW * 1.4);
+      const talW = Math.round(cw * 0.55);
+      const talH = Math.round(talW * 1.4);
+
+      // Seat platums (vārdi + bedži)
+      const seatW = isMobile
+        ? Math.round(Math.min(168, Math.max(132, cw * 1.35)))
+        : Math.round(Math.min(220, Math.max(170, cw * 1.55)));
+
+      // Roka: augstums, lai paceltas kārtis negriežas
+      const vh = Math.max(400, window.innerHeight || 0);
+      const handAreaH = isMobile
+        ? Math.round(Math.min(vh * 0.56, Math.max(180, cardH + 72)))
+        : 220;
+
+      root.style.setProperty("--card-w", `${cw}px`);
+      root.style.setProperty("--card-h", `${cardH}px`);
+      root.style.setProperty("--trick-card-w", `${trickW}px`);
+      root.style.setProperty("--trick-card-h", `${trickH}px`);
+      root.style.setProperty("--talon-w", `${talW}px`);
+      root.style.setProperty("--talon-h", `${talH}px`);
+      root.style.setProperty("--seat-w", `${seatW}px`);
+      root.style.setProperty("--hand-area-h", `${handAreaH}px`);
+    } catch {}
+
     // sākuma nobīde (precīzo korekciju pēc tam izdara clampHandToViewport)
     const initialShift = isMobile
       ? phaseNow === "DISCARD"

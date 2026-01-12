@@ -1383,3 +1383,51 @@ body.zg-fullscreen #zgBottomStack #hand{
 #zgBottomStack #hand[data-phase="DISCARD"]{
   padding-top: 18px;
 }
+
+/* ==========================
+   STANDARD SIZING SYSTEM (3-player card game)
+   Viss atvasināts no --card-w (JS to uzstāda runtime).
+   ========================== */
+:root{
+  --card-w: 96px;
+  --card-h: 134px;
+  --trick-card-w: 90px;
+  --trick-card-h: 126px;
+  --talon-w: 44px;
+  --talon-h: 62px;
+  --seat-w: 180px;
+  --hand-area-h: 220px;
+}
+
+/* Roka */
+body.zl-game #zgBottomStack #hand{
+  height: var(--hand-area-h) !important;
+}
+body.zl-game #zgBottomStack #hand .zg-cardbtn{
+  width: var(--card-w) !important;
+  height: var(--card-h) !important;
+}
+body.zl-game #zgBottomStack #hand .zg-cardbtn .zg-card{
+  width: 100%;
+  height: 100%;
+}
+
+/* Stiķis */
+body.zl-game .zg-slot{
+  width: var(--trick-card-w) !important;
+  height: var(--trick-card-h) !important;
+}
+body.zl-game .zg-trick-cards{
+  height: calc(var(--trick-card-h) + 44px) !important;
+}
+
+/* Talons */
+body.zl-game .zg-cardback{
+  width: var(--talon-w) !important;
+  height: var(--talon-h) !important;
+}
+
+/* Spēlētāju kartītes */
+body.zl-game .zg-seat{
+  width: var(--seat-w) !important;
+}
