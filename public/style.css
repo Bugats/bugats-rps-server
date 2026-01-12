@@ -19,6 +19,10 @@
   /* >>> GALDA BILDES CEĻŠ (ieliec failu /assets/ mapē) <<< */
   --tableBgWebp: url("./assets/zole_table_bg_clean_1920x1080.webp");
   --tableBgPng:  url("./assets/zole_table_bg_clean_1920x1080.png");
+
+  /* Android viewport helpers (JS atjauno) */
+  --vvh: 100dvh;
+  --topbar-h: 0px;
 }
 
 *{ box-sizing:border-box; }
@@ -159,6 +163,16 @@ body.zl-body, body.zg-body{
 }
 
 .zg-main{ display:grid; gap:12px; }
+
+/* Mobilajā: lai saturs neiet zem fixed header */
+@media (max-width: 720px){
+  .zg-main{
+    padding-top: var(--topbar-h, 54px);
+  }
+  body.zl-game #felt.zg-felt{
+    height: calc(var(--vvh, 100dvh) - var(--topbar-h, 54px)) !important;
+  }
+}
 
 /* ====== FELT (GALDA BILDE) ====== */
 .zg-felt{

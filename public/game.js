@@ -189,12 +189,20 @@ function fitFeltToScreen() {
   const vh = getViewportHeight();
   const topH = getElHeight(topBar);
  
+  // Android Chrome: address bar/keyboard maina viewport; turam rezervi un arī ieliekam CSS mainīgos
   const reserve = 18;
   const h = Math.max(260, vh - topH - reserve);
  
   try {
     felt.style.setProperty("height", `${h}px`, "important");
     felt.style.setProperty("max-height", "none", "important");
+  } catch {}
+
+  // CSS mainīgie (lai arī layout var rēķināt no tiem)
+  try {
+    const root = document.documentElement;
+    root.style.setProperty("--vvh", `${vh}px`);
+    root.style.setProperty("--topbar-h", `${topH}px`);
   } catch {}
 }
 
@@ -293,6 +301,11 @@ function initFullscreenAndFit() {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) scheduleFit();
   });
+
+  // Android: pēc load/reflow reizēm vajag vēlreiz (address bar)
+  setTimeout(() => scheduleFit(), 120);
+  setTimeout(() => scheduleFit(), 420);
+  setTimeout(() => scheduleFit(), 1100);
 }
 
 /* ============================
