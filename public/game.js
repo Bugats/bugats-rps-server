@@ -1285,19 +1285,47 @@ function renderHand() {
 
     const n = Math.max(1, handSorted.length);
     const rect = handEl.getBoundingClientRect();
+    const vw = Math.max(320, window.innerWidth || 0);
+
+    // Mobilajā atstājam vietu “galda kārtīm” (talons) un PTS HUD, lai roka neiet tiem virsū.
+    let reserveLeft = 12;
+    let reserveRight = 12;
+    if (isMobile) {
+      try {
+        const tal = document.getElementById("talonPile");
+        if (tal && tal.classList.contains("is-visible")) {
+          // talons parasti stāv kreisajā pusē
+          reserveLeft = Math.max(reserveLeft, 64);
+        }
+      } catch {}
+      try {
+        const hud = document.getElementById("miniPtsHud");
+        if (hud && hud.style.display !== "none") {
+          const r = hud.getBoundingClientRect();
+          reserveRight = Math.max(reserveRight, Math.ceil((r.width || 0) + 12));
+        } else {
+          // CSS mobilajā HUD ~118px, turam konservatīvi mazāku rezervi
+          reserveRight = Math.max(reserveRight, 128);
+        }
+      } catch {
+        reserveRight = Math.max(reserveRight, 128);
+      }
+    }
+
     const avail =
       Math.max(
-        260,
+        240,
         Math.floor(rect?.width || 0) ||
-          (isMobile ? window.innerWidth - 24 : window.innerWidth - 80)
+          (isMobile ? vw - reserveLeft - reserveRight : vw - 80)
       );
 
-    const base = isMobile ? 96 : 120;
-    const minW = isMobile ? 70 : 82;
+    // Mobilajā gribam lielākas kārtis, bet tikai tik daudz, lai vienmēr ietilpst.
+    const base = isMobile ? 112 : 120;
+    const minW = isMobile ? 78 : 82;
 
     const phaseNow = String(roomState.phase || "");
     const ratio =
-      phaseNow === "DISCARD" ? (isMobile ? 0.72 : 0.62) : isMobile ? 0.60 : 0.50;
+      phaseNow === "DISCARD" ? (isMobile ? 0.76 : 0.62) : isMobile ? 0.62 : 0.50;
 
     // cwFit nodrošina, ka n kartis ar overlap ietilpst avail
     const denom = n - (n - 1) * ratio;
@@ -1311,8 +1339,8 @@ function renderHand() {
     // sākuma nobīde (precīzo korekciju pēc tam izdara clampHandToViewport)
     const initialShift = isMobile
       ? phaseNow === "DISCARD"
-        ? Math.round(cw * (n >= 10 ? 0.30 : 0.24))
-        : 12
+        ? Math.round(cw * (n >= 10 ? 0.34 : 0.26))
+        : 14
       : 0;
     _handShiftPx = initialShift;
     handEl.style.setProperty("--hand-shift", `${initialShift}px`);
