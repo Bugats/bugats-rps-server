@@ -925,7 +925,8 @@ const TRUMP_INDEX = new Map(TRUMP_ORDER.map((c, i) => [`${c.r}${c.s}`, i]));
 
 const NON_TRUMP_RANK_STD = { A: 4, "10": 3, K: 2, "9": 1 };
 const NO_TRUMP_RANK = { A: 7, "10": 6, K: 5, Q: 4, J: 3, "9": 2, "8": 1, "7": 0 };
-const SUIT_ORDER = { C: 0, S: 1, H: 2, D: 3 };
+// UI suit ordering (non-trump suits). Zolē bieži gribas redzēt ♠,♣,♥ secību.
+const SUIT_ORDER = { S: 0, C: 1, H: 2, D: 3 };
 
 function isTrumpStd(c) {
   return c?.s === "D" || c?.r === "Q" || c?.r === "J";
@@ -997,6 +998,30 @@ function suitSym(s) {
   if (s === "H") return "♥";
   if (s === "D") return "♦";
   return "?";
+}
+
+function currentFollowInfo() {
+  try {
+    if (!roomState) return null;
+    if (roomState.phase !== "PLAY") return null;
+    if (!Array.isArray(roomState.trickPlays) || roomState.trickPlays.length === 0) return null;
+
+    const lead = roomState.trickPlays[0]?.card;
+    if (!lead) return null;
+
+    const trumpsEnabled = !isMazaContract(roomState.contract);
+    if (!trumpsEnabled) {
+      const sym = suitSym(String(lead.s || "").toUpperCase());
+      return { kind: "SUIT", label: sym, sym };
+    }
+
+    const follow = isTrumpStd(lead) ? "TRUMP" : String(lead.s || "").toUpperCase();
+    if (follow === "TRUMP") return { kind: "TRUMP", label: "TRUMPIS", sym: "♦" };
+    const sym = suitSym(follow);
+    return { kind: "SUIT", label: sym, sym };
+  } catch {
+    return null;
+  }
 }
 function isRedSuit(s) {
   return s === "H" || s === "D";
@@ -1490,7 +1515,11 @@ function renderHand() {
       }
 
       if (roomState.phase === "PLAY" && isMyTurn()) {
-        if (!legal.has(key)) return;
+        if (!legal.has(key)) {
+          const f = currentFollowInfo();
+          if (f) showToast(`JĀIET: ${f.label}`);
+          return;
+        }
         socket.emit("zole:play", { card: { r: c.r, s: c.s } }, (res) => {
           if (!res?.ok) log(`zole:play kļūda: ${res?.error || "UNKNOWN"}`);
         });
@@ -1633,10 +1662,11 @@ function renderAll() {
       if (showContract && isGaldinsContract(roomState?.contract)) {
         statusChip.textContent = `${ph} • GALDIŅŠ (visi GARĀM) • GĀJIENS: ${turnName}`;
       } else {
+        const follow = currentFollowInfo();
         statusChip.textContent =
           showContract && c && c !== "—"
-            ? `${ph} • ${c} • LIELAIS: ${bigName} • GĀJIENS: ${turnName}`
-            : `${ph} • GĀJIENS: ${turnName}`;
+            ? `${ph} • ${c} • LIELAIS: ${bigName} • GĀJIENS: ${turnName}${follow ? ` • JĀIET: ${follow.label}` : ""}`
+            : `${ph} • GĀJIENS: ${turnName}${follow ? ` • JĀIET: ${follow.label}` : ""}`;
       }
     }
   } catch {}
