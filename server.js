@@ -112,6 +112,12 @@ const AUTO_NEXT_HAND_MS = Math.max(
   Math.min(20000, parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000)
 );
 
+// Pauze pēc 3. kārts stiķī (lai visi paspēj redzēt)
+const TRICK_PAUSE_MS = Math.max(
+  0,
+  Math.min(5000, parseInt(process.env.TRICK_PAUSE_MS || "1200", 10) || 1200)
+);
+
 // “Galda/Galdiņa” pamata likme
 const GALDS_PAY = Math.max(
   1,
@@ -970,6 +976,8 @@ function newRoom(roomId) {
     leaderSeat: null,
     turnSeat: null,
     trickPlays: [],
+    trickPauseUntil: 0,
+    trickTimer: null,
 
     galdsTrickNo: 0,
     galdsTalonIndex: 0,
@@ -1003,6 +1011,11 @@ function resetHandState(room) {
   room.leaderSeat = null;
   room.turnSeat = null;
   room.trickPlays = [];
+  room.trickPauseUntil = 0;
+  if (room.trickTimer) {
+    try { clearTimeout(room.trickTimer); } catch {}
+    room.trickTimer = null;
+  }
 
   room.galdsTrickNo = 0;
   room.galdsTalonIndex = 0;
@@ -1268,6 +1281,7 @@ function scoreGalds(room) {
 function computeLegalForSeat(room, seat) {
   if (room.phase !== "PLAY") return [];
   if (room.turnSeat !== seat) return [];
+  if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) return [];
   const hand = room.hands[seat] || [];
   if (room.trickPlays.length === 0) return hand.slice();
 
@@ -1726,6 +1740,9 @@ io.on("connection", (socket) => {
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "PLAY") return ack?.({ ok: false, error: "NOT_PLAY" });
+    if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) {
+      return ack?.({ ok: false, error: "TRICK_PAUSE" });
+    }
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
 
     const c = normalizeCard(payload?.card);
@@ -1749,35 +1766,56 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const winnerSeat = pickTrickWinner(room, room.trickPlays);
-    for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
+    // 3. kārts: vispirms parādām pilnu stiķi visiem, tad pēc pauzes tikai izrēķinam uzvarētāju
+    room.trickPauseUntil = Date.now() + TRICK_PAUSE_MS;
+    emitRoom(room, { note: "TRICK_COMPLETE" });
 
-    room.trickPlays = [];
-    room.leaderSeat = winnerSeat;
-    room.turnSeat = winnerSeat;
-
-    if (room.contract === CONTRACT_GALDS) {
-      room.galdsTrickNo += 1;
-      if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
-        room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
-        room.galdsTalonIndex += 1;
-      }
+    if (room.trickTimer) {
+      try { clearTimeout(room.trickTimer); } catch {}
+      room.trickTimer = null;
     }
 
-    emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
+    room.trickTimer = setTimeout(() => {
+      try {
+        // istaba var būt dzēsta / roka jau resetota
+        if (!rooms.has(room.roomId)) return;
+        if (room.phase !== "PLAY") return;
+        if (!Array.isArray(room.trickPlays) || room.trickPlays.length !== 3) return;
 
-    if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
-      return scoreMaza(room, "TOOK_TRICK");
-    }
+        room.trickPauseUntil = 0;
+        room.trickTimer = null;
 
-    const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
-    if (!allHandsEmpty) return;
+        const winnerSeat = pickTrickWinner(room, room.trickPlays);
+        for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
 
-    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
-    if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
-    if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
+        room.trickPlays = [];
+        room.leaderSeat = winnerSeat;
+        room.turnSeat = winnerSeat;
 
-    return scoreTakeOrZole(room);
+        if (room.contract === CONTRACT_GALDS) {
+          room.galdsTrickNo += 1;
+          if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
+            room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
+            room.galdsTalonIndex += 1;
+          }
+        }
+
+        emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
+
+        if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
+          return scoreMaza(room, "TOOK_TRICK");
+        }
+
+        const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
+        if (!allHandsEmpty) return;
+
+        if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
+        if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
+        if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
+
+        return scoreTakeOrZole(room);
+      } catch {}
+    }, TRICK_PAUSE_MS);
   });
 
   socket.on("disconnect", () => {
