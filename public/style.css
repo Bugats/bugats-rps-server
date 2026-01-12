@@ -1218,7 +1218,7 @@ body.zl-game #felt.zg-felt{
     z-index: 110;
   }
   #zgBottomStack #hand{
-    height: 170px;
+    height: 196px;
     overflow-x: hidden; /* lai nekas neiet ārā pa sāniem */
     overflow-y: visible; /* lai paceļot kārtis netiek nogriezts */
     padding: 0 10px 6px;
@@ -1344,7 +1344,7 @@ body.zl-game #felt.zg-felt{
     transform-origin: 50% 160px;
     transform:
       translateX(calc(var(--t, 0) * 18px))
-      translateY(10px);
+      translateY(0px);
     transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
   }
   body.zl-game #zgBottomStack #hand .zg-cardbtn:first-child{
@@ -1359,14 +1359,14 @@ body.zl-game #felt.zg-felt{
   body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
     transform:
       translateX(calc(var(--t, 0) * 18px))
-      translateY(-12px);
+      translateY(-14px);
     z-index: 9999;
   }
 
   body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected{
     transform:
       translateX(calc(var(--t, 0) * 18px))
-      translateY(-18px);
+      translateY(-22px);
     z-index: 9999;
   }
 }
