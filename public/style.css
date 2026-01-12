@@ -1218,7 +1218,8 @@ body.zl-game #felt.zg-felt{
     z-index: 110;
   }
   #zgBottomStack #hand{
-    height: 196px;
+    /* augstums atkarīgs no kārts izmēra (lai nekas netiek nogriezts) */
+    height: min(56vh, calc(var(--card-w, 96px) * 1.46 + 62px));
     overflow-x: hidden; /* lai nekas neiet ārā pa sāniem */
     overflow-y: visible; /* lai paceļot kārtis netiek nogriezts */
     padding: 0 10px 6px;
@@ -1227,6 +1228,7 @@ body.zl-game #felt.zg-felt{
   }
   #zgBottomStack #hand .zg-cardbtn{
     width: 96px;
+    height: calc(var(--card-w, 96px) * 1.40);
   }
 
   /* PTS tabula pa labi pa vidu (mazāka) */
@@ -1374,6 +1376,7 @@ body.zl-game #felt.zg-felt{
 /* Fullscreen: mazliet vairāk vietas rokai (lai paceļot negriež) */
 body.zg-fullscreen #zgBottomStack #hand{
   padding-top: 14px;
+  height: min(62vh, calc(var(--card-w, 110px) * 1.46 + 70px));
 }
 
 /* DISCARD: paceļot kārtis, lai nepazūd */
