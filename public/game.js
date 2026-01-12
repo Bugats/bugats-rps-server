@@ -1337,7 +1337,7 @@ function renderHand() {
     const phaseNow = String(roomState.phase || "");
     // overlap koeficients (jo lielāks, jo ciešāk kārtis “saiet kopā”)
     const ratio =
-      phaseNow === "DISCARD" ? (isMobile ? 0.84 : 0.62) : isMobile ? 0.72 : 0.50;
+      phaseNow === "DISCARD" ? (isMobile ? 0.80 : 0.62) : isMobile ? 0.68 : 0.50;
 
     // cwFit nodrošina, ka n kartis ar overlap ietilpst avail
     const denom = n - (n - 1) * ratio;
@@ -1382,8 +1382,8 @@ function renderHand() {
     // sākuma nobīde (precīzo korekciju pēc tam izdara clampHandToViewport)
     const initialShift = isMobile
       ? phaseNow === "DISCARD"
-        ? Math.round(cw * (n >= 10 ? 0.28 : 0.22))
-        : 18
+        ? Math.round(cw * (n >= 10 ? 0.22 : 0.18))
+        : 10
       : 0;
     _handShiftPx = initialShift;
     handEl.style.setProperty("--hand-shift", `${initialShift}px`);
