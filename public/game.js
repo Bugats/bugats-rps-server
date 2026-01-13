@@ -73,6 +73,10 @@ const helpModal = $("#helpModal");
 const helpBody = $("#helpBody");
 const btnHelpClose = $("#btnHelpClose");
 
+// Card images (SVG data-uri) cache
+const _cardImgCache = new Map(); // key -> data-uri
+let _cardBackUri = "";
+
 let socket = null;
 let roomState = null;
 let mySeat = null;
@@ -759,6 +763,94 @@ function suitSym(s) {
   return "?";
 }
 
+function svgDataUri(svg) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(String(svg || ""))}`;
+}
+
+function cardSvg(c) {
+  const r = String(c?.r || "").toUpperCase();
+  const s = String(c?.s || "").toUpperCase();
+  const sym = suitSym(s);
+  const isRed = s === "H" || s === "D";
+  const fg = isRed ? "#c1121f" : "#121316";
+  const bg = "#ffffff";
+
+  // 240x336 ~ klasiskā kārts proporcija
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="336" viewBox="0 0 240 336">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f2f6fb"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="239" height="335" rx="0" ry="0" fill="url(#g)" stroke="rgba(0,0,0,0.22)"/>
+  <rect x="10" y="10" width="220" height="316" fill="none" stroke="rgba(0,0,0,0.06)"/>
+
+  <!-- watermark -->
+  <text x="120" y="190" text-anchor="middle" font-size="150" font-weight="900"
+        font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial"
+        fill="${fg}" opacity="0.16">${sym}</text>
+
+  <!-- top-left corner -->
+  <text x="18" y="44" font-size="34" font-weight="900"
+        font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial"
+        fill="${fg}">${r}</text>
+  <text x="20" y="76" font-size="28" font-weight="900"
+        font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial"
+        fill="${fg}">${sym}</text>
+
+  <!-- bottom-right corner -->
+  <g transform="translate(222 320) rotate(180)">
+    <text x="0" y="0" font-size="34" font-weight="900"
+          font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial"
+          fill="${fg}">${r}</text>
+    <text x="2" y="32" font-size="28" font-weight="900"
+          font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial"
+          fill="${fg}">${sym}</text>
+  </g>
+</svg>
+`.trim();
+}
+
+function cardImgUri(c) {
+  const key = `${String(c?.r || "").toUpperCase()}${String(c?.s || "").toUpperCase()}`;
+  const cached = _cardImgCache.get(key);
+  if (cached) return cached;
+  const uri = svgDataUri(cardSvg(c));
+  _cardImgCache.set(key, uri);
+  return uri;
+}
+
+function cardBackSvg() {
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="336" viewBox="0 0 240 336">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#162033"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <pattern id="p" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+      <rect width="16" height="16" fill="rgba(255,255,255,0.02)"/>
+      <rect x="0" y="0" width="8" height="16" fill="rgba(255,255,255,0.05)"/>
+    </pattern>
+  </defs>
+  <rect x="0.5" y="0.5" width="239" height="335" fill="url(#bg)" stroke="rgba(255,255,255,0.16)"/>
+  <rect x="10" y="10" width="220" height="316" fill="url(#p)" stroke="rgba(255,255,255,0.10)"/>
+  <text x="120" y="190" text-anchor="middle" font-size="120" font-weight="1000"
+        font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial"
+        fill="rgba(255,255,255,0.20)">Z</text>
+</svg>
+`.trim();
+}
+
+function ensureCardImages() {
+  if (!_cardBackUri) _cardBackUri = svgDataUri(cardBackSvg());
+  try {
+    document.documentElement.style.setProperty("--cardback-img", `url("${_cardBackUri}")`);
+  } catch {}
+}
+
 function currentFollowInfo() {
   try {
     if (!roomState) return null;
@@ -898,18 +990,10 @@ function renderPlayerCard(p, whereLabel) {
 /* ====== SMUKĀS KĀRTIS ====== */
 function renderCardFace(c) {
   if (!c) return "";
-  const red = isRedSuit(c.s) ? "zg-card-red" : "";
-  const sym = suitSym(c.s);
-  const rank = escapeHtml(c.r);
-
-  return `<div class="zg-card zg-pretty ${red}">
-    <div class="zg-corner zg-tl">
-      <div class="zg-crank">${rank}</div>
-      <div class="zg-csuit">${escapeHtml(sym)}</div>
-    </div>
-
-    <div class="zg-pip">${escapeHtml(sym)}</div>
-  </div>`;
+  const uri = cardImgUri(c);
+  const sym = suitSym(String(c.s || "").toUpperCase());
+  const alt = `${String(c.r || "")}${sym}`;
+  return `<div class="zg-card zg-img"><img src="${escapeHtml(uri)}" alt="${escapeHtml(alt)}" /></div>`;
 }
 
 function isMyTurn() {
@@ -1850,6 +1934,9 @@ function boot() {
   } catch {}
   try {
     initFullscreenAndFit();
+  } catch {}
+  try {
+    ensureCardImages();
   } catch {}
   // Mobilajā: īsāki button teksti (mazāk vietas, vairāk kārtīm)
   try {
