@@ -149,7 +149,15 @@ app.use(express.static(PUBLIC_DIR, { extensions: ["html"] }));
 
 app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 app.get("/api/ping", (_req, res) => res.send("OK"));
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) =>
+  res.json({
+    ok: true,
+    ts: Date.now(),
+    uptimeSec: Math.floor(process.uptime()),
+    rooms: typeof rooms?.size === "number" ? rooms.size : undefined,
+    mem: process.memoryUsage(),
+  })
+);
 
 /* ============================
    GLOBAL LEADERBOARD (TOP10)
@@ -171,12 +179,86 @@ function readJson(file, fallback) {
   }
 }
 function writeJson(file, obj) {
+  // Atomic write (tmp + rename) — lai prod restart/powerloss nesabojā JSON.
   try {
-    fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
+    const tmp = `${file}.tmp`;
+    const data = JSON.stringify(obj, null, 2);
+    fs.writeFileSync(tmp, data, "utf8");
+    fs.renameSync(tmp, file);
   } catch {}
 }
 
 ensureDir(DATA_DIR);
+
+/* ============================
+   PROD: LOGI + BACKUP
+   ============================ */
+const LOG_DIR = path.join(DATA_DIR, "logs");
+const BACKUP_DIR = path.join(DATA_DIR, "backups");
+ensureDir(LOG_DIR);
+ensureDir(BACKUP_DIR);
+
+const LOG_TO_FILE = String(process.env.LOG_TO_FILE || "1") !== "0";
+const LOG_FILE = path.join(LOG_DIR, "server.log");
+
+function logLine(level, msg, extra) {
+  const ts = new Date().toISOString();
+  const line =
+    `[${ts}] [${String(level || "INFO").toUpperCase()}] ${String(msg || "")}` +
+    (extra ? ` ${String(extra)}` : "");
+  try {
+    // eslint-disable-next-line no-console
+    console.log(line);
+  } catch {}
+  if (!LOG_TO_FILE) return;
+  try {
+    fs.appendFileSync(LOG_FILE, line + "\n", "utf8");
+  } catch {}
+}
+
+function safeUnlink(p) {
+  try {
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch {}
+}
+
+function backupFile(src, tag) {
+  try {
+    if (!fs.existsSync(src)) return;
+    const base = path.basename(src);
+    const ts = new Date().toISOString().replaceAll(":", "").replaceAll(".", "");
+    const name = `${ts}_${String(tag || "backup")}_${base}`;
+    const dst = path.join(BACKUP_DIR, name);
+    fs.copyFileSync(src, dst);
+  } catch {}
+}
+
+function rotateBackups(keep = 60) {
+  try {
+    const files = fs
+      .readdirSync(BACKUP_DIR)
+      .map((f) => ({ f, p: path.join(BACKUP_DIR, f) }))
+      .filter((x) => fs.statSync(x.p).isFile())
+      .sort((a, b) => fs.statSync(b.p).mtimeMs - fs.statSync(a.p).mtimeMs);
+    for (let i = keep; i < files.length; i++) safeUnlink(files[i].p);
+  } catch {}
+}
+
+// Room state persist (restart-safe)
+const ROOMS_PATH = path.join(DATA_DIR, "zole_rooms.json");
+const ENABLE_ROOM_PERSIST = String(process.env.ENABLE_ROOM_PERSIST || "1") !== "0";
+const ROOM_SAVE_INTERVAL_MS = Math.max(
+  500,
+  Math.min(20000, parseInt(process.env.ROOM_SAVE_INTERVAL_MS || "5000", 10) || 5000)
+);
+const ROOM_PERSIST_MAX_AGE_MS = Math.max(
+  60_000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    parseInt(process.env.ROOM_PERSIST_MAX_AGE_MS || String(24 * 60 * 60 * 1000), 10) ||
+      24 * 60 * 60 * 1000
+  )
+);
 
 let LB = readJson(LB_PATH, { players: {} });
 // LB.players[username] = { username, avatarUrl, pts, hands, updatedAt }
@@ -1083,6 +1165,190 @@ function getOrCreateRoom(roomId) {
   return rooms.get(id);
 }
 
+/* ============================
+   PROD: Room persist (restart-safe)
+   ============================ */
+let _roomsDirty = false;
+let _roomsSaveTimer = null;
+let _roomsLastSavedAt = 0;
+
+function sanitizePlayersForPersist(players) {
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const p = players?.[i] || { seat: i };
+    const username = p?.username ? safeUsername(p.username) : null;
+    out.push({
+      seat: i,
+      username,
+      avatarUrl: username ? String(p.avatarUrl || "") : "",
+      ready: !!p.ready && !!username,
+      seed: username ? String(p.seed || "") : "",
+      matchPts: typeof p.matchPts === "number" && Number.isFinite(p.matchPts) ? p.matchPts : START_PTS,
+    });
+  }
+  return out;
+}
+
+function roomToPersist(room) {
+  return {
+    roomId: room.roomId,
+    phase: room.phase,
+    handNo: room.handNo,
+    dealerSeat: room.dealerSeat,
+    updatedAt: room.updatedAt || Date.now(),
+
+    // userPts cache (lai ātri atjauno pēc reconnect)
+    userPts: room.userPts || null,
+    userPtsOrder: room.userPtsOrder || null,
+
+    players: sanitizePlayersForPersist(room.players),
+
+    fairness: room.fairness
+      ? {
+          serverCommit: room.fairness.serverCommit,
+          serverSecret: room.fairness.serverSecret,
+          serverReveal: room.fairness.serverReveal,
+          combinedHash: room.fairness.combinedHash,
+        }
+      : null,
+
+    bids: Array.isArray(room.bids) ? room.bids : [],
+    bidTurnSeat: room.bidTurnSeat,
+    contract: room.contract,
+    bigSeat: room.bigSeat,
+
+    deck: Array.isArray(room.deck) ? room.deck : null,
+    hands: Array.isArray(room.hands) ? room.hands : [[], [], []],
+    talon: Array.isArray(room.talon) ? room.talon : [],
+    discard: Array.isArray(room.discard) ? room.discard : [],
+    taken: Array.isArray(room.taken) ? room.taken : [[], [], []],
+
+    leaderSeat: room.leaderSeat,
+    turnSeat: room.turnSeat,
+    turnEndsAt: room.turnEndsAt || 0,
+    trickPlays: Array.isArray(room.trickPlays) ? room.trickPlays : [],
+    trickPauseUntil: room.trickPauseUntil || 0,
+
+    galdsTrickNo: room.galdsTrickNo || 0,
+    galdsTalonIndex: room.galdsTalonIndex || 0,
+
+    lastResult: room.lastResult || null,
+  };
+}
+
+function saveRoomsSnapshot(reason) {
+  if (!ENABLE_ROOM_PERSIST) return;
+  try {
+    const now = Date.now();
+    const list = [];
+    for (const r of rooms.values()) {
+      if (!r) continue;
+      // neturam tukšas istabas, un neturam ļoti vecas (lai fails neaug bezgalīgi)
+      const cnt = (r.players || []).filter((p) => p && p.username).length;
+      if (cnt <= 0) continue;
+      if (r.updatedAt && now - r.updatedAt > ROOM_PERSIST_MAX_AGE_MS) continue;
+      list.push(roomToPersist(r));
+    }
+    writeJson(ROOMS_PATH, { ok: true, ts: now, rooms: list });
+    _roomsLastSavedAt = now;
+    _roomsDirty = false;
+    if (reason) logLine("info", `rooms saved (${list.length})`, reason);
+  } catch (e) {
+    logLine("error", "rooms save failed", e?.message || e || "");
+  }
+}
+
+function markRoomsDirty(reason) {
+  if (!ENABLE_ROOM_PERSIST) return;
+  _roomsDirty = true;
+  if (_roomsSaveTimer) return;
+  _roomsSaveTimer = setTimeout(() => {
+    _roomsSaveTimer = null;
+    if (_roomsDirty) saveRoomsSnapshot(reason || "dirty");
+  }, 250);
+}
+
+function restoreRoomsFromDisk() {
+  if (!ENABLE_ROOM_PERSIST) return;
+  try {
+    const data = readJson(ROOMS_PATH, null);
+    const arr = Array.isArray(data?.rooms) ? data.rooms : [];
+    if (!arr.length) return;
+
+    const now = Date.now();
+    let restored = 0;
+    for (const snap of arr) {
+      const rid = normRoomId(snap?.roomId);
+      if (!rid) continue;
+      const updatedAt = Number(snap?.updatedAt || 0) || 0;
+      if (updatedAt && now - updatedAt > ROOM_PERSIST_MAX_AGE_MS) continue;
+
+      const r = newRoom(rid);
+      r.phase = String(snap?.phase || "LOBBY");
+      r.handNo = typeof snap?.handNo === "number" ? snap.handNo : 0;
+      r.dealerSeat = typeof snap?.dealerSeat === "number" ? snap.dealerSeat : 0;
+      r.updatedAt = updatedAt || now;
+
+      r.userPts = snap?.userPts && typeof snap.userPts === "object" ? snap.userPts : Object.create(null);
+      r.userPtsOrder = Array.isArray(snap?.userPtsOrder) ? snap.userPtsOrder : [];
+
+      // players (svarīgi: connected/socketId vienmēr false/null pēc restarta)
+      const pls = Array.isArray(snap?.players) ? snap.players : [];
+      for (let i = 0; i < 3; i++) {
+        const p = pls[i] || { seat: i };
+        const username = p?.username ? safeUsername(p.username) : null;
+        r.players[i] = {
+          seat: i,
+          username,
+          avatarUrl: username ? String(p.avatarUrl || "") : "",
+          ready: !!p.ready && !!username,
+          connected: false,
+          socketId: null,
+          seed: username ? String(p.seed || "") : null,
+          matchPts:
+            typeof p.matchPts === "number" && Number.isFinite(p.matchPts) ? p.matchPts : START_PTS,
+        };
+      }
+
+      r.fairness = snap?.fairness && typeof snap.fairness === "object" ? snap.fairness : null;
+      r.bids = Array.isArray(snap?.bids) ? snap.bids : [];
+      r.bidTurnSeat = typeof snap?.bidTurnSeat === "number" ? snap.bidTurnSeat : nextSeatCW(r.dealerSeat);
+      r.contract = snap?.contract ?? null;
+      r.bigSeat = typeof snap?.bigSeat === "number" ? snap.bigSeat : null;
+
+      r.deck = Array.isArray(snap?.deck) ? snap.deck : null;
+      r.hands = Array.isArray(snap?.hands) ? snap.hands : [[], [], []];
+      r.talon = Array.isArray(snap?.talon) ? snap.talon : [];
+      r.discard = Array.isArray(snap?.discard) ? snap.discard : [];
+      r.taken = Array.isArray(snap?.taken) ? snap.taken : [[], [], []];
+
+      r.leaderSeat = typeof snap?.leaderSeat === "number" ? snap.leaderSeat : null;
+      r.turnSeat = typeof snap?.turnSeat === "number" ? snap.turnSeat : null;
+      r.turnEndsAt = Number(snap?.turnEndsAt || 0) || 0;
+      r.trickPlays = Array.isArray(snap?.trickPlays) ? snap.trickPlays : [];
+      r.trickPauseUntil = Number(snap?.trickPauseUntil || 0) || 0;
+      r.trickTimer = null;
+
+      r.galdsTrickNo = Number(snap?.galdsTrickNo || 0) || 0;
+      r.galdsTalonIndex = Number(snap?.galdsTalonIndex || 0) || 0;
+
+      r.lastResult = snap?.lastResult || null;
+
+      // autoTimer/turnTimer netiek serializēti
+      r.autoTimer = null;
+      r.autoDelayOverrideMs = null;
+      r.turnTimer = null;
+
+      rooms.set(rid, r);
+      restored += 1;
+    }
+
+    if (restored) logLine("info", `rooms restored (${restored})`, ROOMS_PATH);
+  } catch (e) {
+    logLine("error", "rooms restore failed", e?.message || e || "");
+  }
+}
+
 function resetHandState(room) {
   room.fairness = null;
 
@@ -1482,6 +1748,52 @@ function autoDiscard(room) {
   return true;
 }
 
+function finalizeTrickIfComplete(room) {
+  try {
+    if (!rooms.has(room.roomId)) return false;
+    if (room.phase !== "PLAY") return false;
+    if (!Array.isArray(room.trickPlays) || room.trickPlays.length !== 3) return false;
+
+    room.trickPauseUntil = 0;
+    room.trickTimer = null;
+
+    const winnerSeat = pickTrickWinner(room, room.trickPlays);
+    for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
+
+    room.trickPlays = [];
+    room.leaderSeat = winnerSeat;
+    room.turnSeat = winnerSeat;
+
+    if (room.contract === CONTRACT_GALDS) {
+      room.galdsTrickNo += 1;
+      if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
+        room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
+        room.galdsTalonIndex += 1;
+      }
+    }
+
+    emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
+    scheduleTurnTimer(room);
+
+    if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
+      scoreMaza(room, "TOOK_TRICK");
+      return true;
+    }
+
+    const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
+    if (!allHandsEmpty) return true;
+
+    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) scoreTakeOrZole(room);
+    else if (room.contract === CONTRACT_MAZA) scoreMaza(room, "END");
+    else if (room.contract === CONTRACT_GALDS) scoreGalds(room);
+    else scoreTakeOrZole(room);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function autoPlay(room, seat) {
   if (room.phase !== "PLAY") return false;
   if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) return false;
@@ -1516,51 +1828,13 @@ function autoPlay(room, seat) {
   }
 
   room.trickTimer = setTimeout(() => {
-    try {
-      if (!rooms.has(room.roomId)) return;
-      if (room.phase !== "PLAY") return;
-      if (!Array.isArray(room.trickPlays) || room.trickPlays.length !== 3) return;
-
-      room.trickPauseUntil = 0;
-      room.trickTimer = null;
-
-      const winnerSeat = pickTrickWinner(room, room.trickPlays);
-      for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
-
-      room.trickPlays = [];
-      room.leaderSeat = winnerSeat;
-      room.turnSeat = winnerSeat;
-
-      if (room.contract === CONTRACT_GALDS) {
-        room.galdsTrickNo += 1;
-        if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
-          room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
-          room.galdsTalonIndex += 1;
-        }
-      }
-
-      emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
-      scheduleTurnTimer(room);
-
-      if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
-        return scoreMaza(room, "TOOK_TRICK");
-      }
-
-      const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
-      if (!allHandsEmpty) return;
-
-      if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
-      if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
-      if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
-
-      return scoreTakeOrZole(room);
-    } catch {}
+    finalizeTrickIfComplete(room);
   }, TRICK_PAUSE_MS);
 
   return true;
 }
 
-function scheduleTurnTimer(room) {
+function scheduleTurnTimer(room, endsAtOverride) {
   clearTurnTimer(room);
   if (!room) return;
 
@@ -1573,8 +1847,14 @@ function scheduleTurnTimer(room) {
   else return;
   if (typeof seat !== "number") return;
 
-  room.turnEndsAt = now + TURN_MS;
+  const endsAt =
+    typeof endsAtOverride === "number" && Number.isFinite(endsAtOverride) && endsAtOverride > now
+      ? Math.min(endsAtOverride, now + TURN_MS) // nelaižam bezgalīgi ilgi
+      : now + TURN_MS;
+
+  room.turnEndsAt = endsAt;
   const expected = room.turnEndsAt;
+  const delay = Math.max(0, expected - now);
 
   room.turnTimer = setTimeout(() => {
     const r = rooms.get(room.roomId);
@@ -1586,7 +1866,7 @@ function scheduleTurnTimer(room) {
       else if (r.phase === "DISCARD") autoDiscard(r);
       else if (r.phase === "PLAY") autoPlay(r, seat);
     } catch {}
-  }, TURN_MS + 35);
+  }, delay + 35);
 }
 
 function publicPlayers(room) {
@@ -1658,6 +1938,7 @@ function sanitizeStateForSeat(room, seat) {
 
 function emitRoom(room, extra) {
   room.updatedAt = Date.now();
+  markRoomsDirty(extra?.note || "emitRoom");
 
   for (const p of room.players) {
     if (!p.socketId) continue;
@@ -2153,46 +2434,7 @@ io.on("connection", (socket) => {
     }
 
     room.trickTimer = setTimeout(() => {
-      try {
-        // istaba var būt dzēsta / roka jau resetota
-        if (!rooms.has(room.roomId)) return;
-        if (room.phase !== "PLAY") return;
-        if (!Array.isArray(room.trickPlays) || room.trickPlays.length !== 3) return;
-
-        room.trickPauseUntil = 0;
-        room.trickTimer = null;
-
-        const winnerSeat = pickTrickWinner(room, room.trickPlays);
-        for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
-
-        room.trickPlays = [];
-        room.leaderSeat = winnerSeat;
-        room.turnSeat = winnerSeat;
-        scheduleTurnTimer(room);
-
-        if (room.contract === CONTRACT_GALDS) {
-          room.galdsTrickNo += 1;
-          if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
-            room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
-            room.galdsTalonIndex += 1;
-          }
-        }
-
-        emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
-
-        if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
-          return scoreMaza(room, "TOOK_TRICK");
-        }
-
-        const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
-        if (!allHandsEmpty) return;
-
-        if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
-        if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
-        if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
-
-        return scoreTakeOrZole(room);
-      } catch {}
+      finalizeTrickIfComplete(room);
     }, TRICK_PAUSE_MS);
   });
 
@@ -2236,19 +2478,108 @@ function normalizeCard(x) {
 // drošības: saglabā leaderboard uz exit
 process.on("SIGINT", () => {
   try { lbSave(); } catch {}
+  try { saveRoomsSnapshot("SIGINT"); } catch {}
+  try {
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  } catch {}
   process.exit(0);
 });
 process.on("SIGTERM", () => {
   try { lbSave(); } catch {}
+  try { saveRoomsSnapshot("SIGTERM"); } catch {}
+  try {
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  } catch {}
   process.exit(0);
 });
 
+process.on("uncaughtException", (e) => {
+  logLine("error", "uncaughtException", e?.stack || e?.message || e || "");
+  try { lbSave(); } catch {}
+  try { saveRoomsSnapshot("uncaughtException"); } catch {}
+});
+process.on("unhandledRejection", (e) => {
+  logLine("error", "unhandledRejection", e?.stack || e?.message || e || "");
+});
+
+function resumeRoomsRuntime() {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    if (!room) continue;
+
+    // ja kaut kas nav saskanīgs, mēģinam ielikt drošus defaultus
+    if (room.phase === "BIDDING" && typeof room.turnSeat !== "number")
+      room.turnSeat = typeof room.bidTurnSeat === "number" ? room.bidTurnSeat : nextSeatCW(room.dealerSeat);
+    if (room.phase === "PLAY" && typeof room.turnSeat !== "number" && typeof room.leaderSeat === "number")
+      room.turnSeat = room.leaderSeat;
+
+    // atjaunojam “pending trick” pēc restarta
+    if (room.phase === "PLAY" && Array.isArray(room.trickPlays) && room.trickPlays.length === 3) {
+      const leftMs = Math.max(0, Number(room.trickPauseUntil || 0) - now);
+      try { if (room.trickTimer) clearTimeout(room.trickTimer); } catch {}
+      room.trickTimer = setTimeout(() => {
+        finalizeTrickIfComplete(room);
+      }, leftMs + 25);
+      continue; // turn timer tikai pēc stiķa
+    }
+
+    // turn timer
+    if (room.phase === "PLAY" || room.phase === "BIDDING" || room.phase === "DISCARD") {
+      const endsAt = Number(room.turnEndsAt || 0) || 0;
+      scheduleTurnTimer(room, endsAt > now ? endsAt : undefined);
+    }
+  }
+}
+
+// Startup: restore rooms + schedule persist/backup
+if (ENABLE_ROOM_PERSIST) {
+  try {
+    restoreRoomsFromDisk();
+    resumeRoomsRuntime();
+  } catch {}
+  try {
+    setInterval(() => {
+      if (_roomsDirty) saveRoomsSnapshot("interval");
+    }, ROOM_SAVE_INTERVAL_MS);
+  } catch {}
+}
+
+try {
+  // periodiski backup (6h) + rotācija
+  setInterval(() => {
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  }, 6 * 60 * 60 * 1000);
+} catch {}
+
 server.listen(PORT, () => {
-  console.log(`[zole] listening on :${PORT}`);
-  console.log(`[zole] START_PTS=${START_PTS}`);
-  console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
-  console.log(`[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
-  console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
-  console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
-  console.log(`[zole] LEADERBOARD: ${LB_PATH}`);
+  logLine("info", `[zole] listening on :${PORT}`);
+  logLine("info", `[zole] START_PTS=${START_PTS}`);
+  logLine("info", `[zole] TURN_MS=${TURN_MS}`);
+  logLine("info", `[zole] AUTO_START_MS=${AUTO_START_MS}`);
+  logLine("info", `[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
+  logLine("info", `[zole] TRICK_PAUSE_MS=${TRICK_PAUSE_MS}`);
+  logLine("info", `[zole] ENABLE_ROOM_PERSIST=${ENABLE_ROOM_PERSIST ? "1" : "0"}`);
+  logLine("info", `[zole] ROOM_SAVE_INTERVAL_MS=${ROOM_SAVE_INTERVAL_MS}`);
+  logLine("info", `[zole] ROOMS_PATH=${ROOMS_PATH}`);
+  logLine("info", `[zole] USERS=${USERS_PATH}`);
+  logLine("info", `[zole] LEADERBOARD=${LB_PATH}`);
+  logLine("info", `[zole] BACKUPS=${BACKUP_DIR}`);
+  logLine("info", `[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
+
+  try {
+    // backup uz starta (lai ir “pirms” kopija)
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  } catch {}
 });
