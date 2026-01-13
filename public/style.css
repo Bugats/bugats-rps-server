@@ -327,6 +327,18 @@ body.zl-body, body.zg-body{
   color: rgba(238,242,255,0.86);
 }
 
+.zg-report{
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: rgba(238,242,255,0.92);
+  font-weight: 900;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 .zg-backs{ display:flex; gap:4px; flex-wrap:wrap; }
 .zg-back{
   width:14px; height:18px;

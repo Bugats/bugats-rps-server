@@ -975,6 +975,13 @@ function renderPlayerCard(p, whereLabel) {
     <div class="zg-subline">
       ${badges ? `<span class="zg-badges">${badges}</span>` : ""}
     </div>
+    ${
+      whereLabel !== "tu"
+        ? `<div class="zg-subline"><button class="zg-report" type="button" data-report="${escapeHtml(
+            p.username
+          )}">Report</button></div>`
+        : ""
+    }
   </div>`;
 }
 
@@ -1588,6 +1595,24 @@ function renderAll() {
   if (seatLeft) seatLeft.innerHTML = renderPlayerCard(pL, "pretinieks");
   if (seatRight) seatRight.innerHTML = renderPlayerCard(pR, "pretinieks");
   if (seatBottom) seatBottom.innerHTML = renderPlayerCard(me, "tu");
+
+  // report poga (minimum moderation)
+  try {
+    document.querySelectorAll("button.zg-report[data-report]").forEach((btn) => {
+      if (btn.dataset.bound === "1") return;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", () => {
+        const target = String(btn.getAttribute("data-report") || "").trim();
+        if (!target) return;
+        const reason = String(prompt(`Report ${target}: iemesls? (piem., lamājas, spam)`) || "").trim();
+        if (!reason) return;
+        socket?.emit?.("moderation:report", { target, reason }, (res) => {
+          if (res?.ok) showHudToast("Report nosūtīts", 2200);
+          else showHudToast(`Report neizdevās: ${res?.error || "ERROR"}`, 2600);
+        });
+      });
+    });
+  } catch {}
 
   // izcel gājienu / lielo uz seat kartītēm
   try {

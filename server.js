@@ -260,6 +260,134 @@ const ROOM_PERSIST_MAX_AGE_MS = Math.max(
   )
 );
 
+/* ============================
+   PUBLIC PROD: anti-spam + AFK + moderation (minimum)
+   ============================ */
+const RL_ENABLED = String(process.env.RL_ENABLED || "1") !== "0";
+const RL_MAX_KEYS = Math.max(2000, Math.min(200000, parseInt(process.env.RL_MAX_KEYS || "20000", 10) || 20000));
+
+const AFK_AUTO_LIMIT = Math.max(2, Math.min(12, parseInt(process.env.AFK_AUTO_LIMIT || "4", 10) || 4));
+const AFK_AUTO_DECAY_MS = Math.max(
+  10_000,
+  Math.min(300_000, parseInt(process.env.AFK_AUTO_DECAY_MS || "90000", 10) || 90000)
+);
+
+const BANS_PATH = path.join(DATA_DIR, "zole_bans.json");
+let BANS = readJson(BANS_PATH, { users: {}, ips: {} });
+const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
+const REPORTS_PATH = path.join(DATA_DIR, "zole_reports.jsonl");
+
+function bansSave() {
+  writeJson(BANS_PATH, BANS);
+}
+function isBannedUsername(username) {
+  const u = safeUsername(username);
+  if (!u) return false;
+  const b = BANS?.users?.[u];
+  if (!b) return false;
+  if (b.until && Date.now() > b.until) return false;
+  return true;
+}
+function ipFromSocket(socket) {
+  try {
+    const xf = String(socket?.handshake?.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
+    return xf || String(socket?.handshake?.address || "").trim() || "";
+  } catch {
+    return "";
+  }
+}
+function isBannedIp(ip) {
+  const x = String(ip || "").trim();
+  if (!x) return false;
+  const b = BANS?.ips?.[x];
+  if (!b) return false;
+  if (b.until && Date.now() > b.until) return false;
+  return true;
+}
+function appendJsonl(file, obj) {
+  try {
+    fs.appendFileSync(file, JSON.stringify(obj) + "\n", "utf8");
+  } catch {}
+}
+
+// Rate limit (token bucket): key -> {t,last}
+const RL = new Map();
+function rlConsume(key, limit, perMs) {
+  if (!RL_ENABLED) return true;
+  const now = Date.now();
+  const k = String(key || "");
+  if (!k) return true;
+
+  let s = RL.get(k);
+  if (!s) {
+    s = { t: limit, last: now };
+    RL.set(k, s);
+  }
+  const elapsed = Math.max(0, now - (s.last || now));
+  s.last = now;
+  const refill = (elapsed / perMs) * limit;
+  s.t = Math.min(limit, (s.t || 0) + refill);
+  if (s.t < 1) return false;
+  s.t -= 1;
+
+  // periodic cleanup
+  if (RL.size > RL_MAX_KEYS) {
+    let i = 0;
+    for (const kk of RL.keys()) {
+      RL.delete(kk);
+      if (++i >= Math.floor(RL_MAX_KEYS * 0.2)) break;
+    }
+  }
+  return true;
+}
+function rlKey(socket, ev, scope) {
+  const ip = ipFromSocket(socket);
+  return `${String(scope || "sock")}:${String(socket?.id || "noid")}:${ip}:${String(ev || "")}`;
+}
+
+function touchAfk(room, seat, kind) {
+  try {
+    const p = room?.players?.[seat];
+    if (!p || !p.username) return;
+    const now = Date.now();
+    if (!p.afk) p.afk = { auto: 0, lastAutoAt: 0 };
+
+    // decay: ja sen nebija auto, sākam no jauna
+    if (p.afk.lastAutoAt && now - p.afk.lastAutoAt > AFK_AUTO_DECAY_MS) p.afk.auto = 0;
+    p.afk.lastAutoAt = now;
+    p.afk.auto = Number(p.afk.auto || 0) + 1;
+
+    if (p.afk.auto < AFK_AUTO_LIMIT) return;
+
+    // AFK limit sasniegts
+    if (room.phase === "LOBBY") {
+      // lobby: uzreiz atbrīvo vietu
+      const uname = p.username;
+      if (uname) setUserPts(room, uname, p.matchPts);
+      room.players[seat] = {
+        seat,
+        username: null,
+        avatarUrl: "",
+        ready: false,
+        connected: false,
+        socketId: null,
+        seed: null,
+        matchPts: START_PTS,
+        afk: null,
+      };
+      emitRoom(room, { note: "AFK_KICK_LOBBY", seat });
+      return;
+    }
+
+    // spēles laikā: neizjaucam partiju, bet atzīmējam kā AFK un pēc partijas atbrīvosim vietu
+    p.connected = false;
+    p.socketId = null;
+    p.ready = false;
+    p.afk.kickAfterHand = true;
+    emitRoom(room, { note: "AFK_MARKED", seat });
+  } catch {}
+}
+
 let LB = readJson(LB_PATH, { players: {} });
 // LB.players[username] = { username, avatarUrl, pts, hands, updatedAt }
 
@@ -658,6 +786,86 @@ app.post(["/logout", "/auth/logout", "/api/logout", "/api/auth/logout"], (_req, 
     clearAuthCookie(res);
   } catch {}
   res.json({ ok: true, ts: Date.now() });
+});
+
+/* ============================
+   MODERATION (minimum): report + ban/unban (admin)
+   ============================ */
+app.post(["/report", "/api/report", "/auth/report", "/api/auth/report"], (req, res) => {
+  try {
+    const token = getTokenFromReq(req);
+    const v = verifyToken(token);
+    if (!v.ok) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+
+    const reporter = safeUsername(v.payload?.username);
+    const target = safeUsername(req.body?.target || "");
+    const reason = String(req.body?.reason || "").trim().slice(0, 300);
+    const roomId = normRoomId(req.body?.roomId || "");
+    if (!reporter || !target) return res.status(400).json({ ok: false, error: "BAD_INPUT" });
+
+    appendJsonl(REPORTS_PATH, {
+      ts: Date.now(),
+      reporter,
+      target,
+      roomId: roomId || null,
+      reason,
+      via: "http",
+      ip: String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || ""),
+    });
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "REPORT_FAILED" });
+  }
+});
+
+app.post(["/admin/ban", "/api/admin/ban"], (req, res) => {
+  try {
+    if (!ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "ADMIN_DISABLED" });
+    const tok = String(req.headers["x-admin-token"] || "").trim();
+    if (tok !== ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+
+    const username = safeUsername(req.body?.username || "");
+    const ip = String(req.body?.ip || "").trim();
+    const reason = String(req.body?.reason || "").trim().slice(0, 300);
+    const minutes = Math.max(0, Math.min(525600, parseInt(req.body?.minutes || "0", 10) || 0));
+    const until = minutes ? Date.now() + minutes * 60_000 : null; // null = permanent
+    if (!username && !ip) return res.status(400).json({ ok: false, error: "BAD_INPUT" });
+
+    if (username) {
+      if (!BANS.users) BANS.users = {};
+      BANS.users[username] = { until, reason, ts: Date.now() };
+    }
+    if (ip) {
+      if (!BANS.ips) BANS.ips = {};
+      BANS.ips[ip] = { until, reason, ts: Date.now() };
+    }
+    bansSave();
+    backupFile(BANS_PATH, "bans");
+    rotateBackups(80);
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "BAN_FAILED" });
+  }
+});
+
+app.post(["/admin/unban", "/api/admin/unban"], (req, res) => {
+  try {
+    if (!ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "ADMIN_DISABLED" });
+    const tok = String(req.headers["x-admin-token"] || "").trim();
+    if (tok !== ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+
+    const username = safeUsername(req.body?.username || "");
+    const ip = String(req.body?.ip || "").trim();
+    if (!username && !ip) return res.status(400).json({ ok: false, error: "BAD_INPUT" });
+    if (username && BANS?.users) delete BANS.users[username];
+    if (ip && BANS?.ips) delete BANS.ips[ip];
+    bansSave();
+    backupFile(BANS_PATH, "bans");
+    rotateBackups(80);
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "UNBAN_FAILED" });
+  }
 });
 
 // /me — pieņem Bearer vai cookie; atgriež arī pts/hands
@@ -1121,9 +1329,9 @@ function newRoom(roomId) {
     userPtsOrder: [],
 
     players: [
-      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
-      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
-      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
+      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS, afk: null },
+      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS, afk: null },
+      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS, afk: null },
     ],
 
     dealerSeat: 0,
@@ -1448,6 +1656,29 @@ function finishHandToLobby(room, lastResult, extraNote) {
     if (p.username) p.ready = true;
   }
 
+  // AFK: ja spēles laikā sasniedza auto-limit, pēc partijas atbrīvojam vietu
+  try {
+    for (let s = 0; s < 3; s++) {
+      const p = room.players[s];
+      if (!p?.username) continue;
+      if (p?.afk?.kickAfterHand) {
+        const uname = p.username;
+        if (uname) setUserPts(room, uname, p.matchPts);
+        room.players[s] = {
+          seat: s,
+          username: null,
+          avatarUrl: "",
+          ready: false,
+          connected: false,
+          socketId: null,
+          seed: null,
+          matchPts: START_PTS,
+          afk: null,
+        };
+      }
+    }
+  } catch {}
+
   room.autoDelayOverrideMs = AUTO_NEXT_HAND_MS;
 
   room.dealerSeat = nextSeatCW(room.dealerSeat);
@@ -1690,6 +1921,8 @@ function autoBid(room, seat) {
     if (!did) return false;
   }
 
+  touchAfk(room, seat, "BID");
+
   // timeout = GARĀM
   room.bids.push({ seat, bid: "GARĀM" });
   room.turnSeat = nextSeatCW(room.turnSeat);
@@ -1721,6 +1954,8 @@ function autoDiscard(room) {
   const seat = room.bigSeat;
   if (typeof seat !== "number") return false;
   if (room.contract !== CONTRACT_TAKE) return false;
+
+  touchAfk(room, seat, "DISCARD");
 
   const hand = room.hands[seat] || [];
   if (hand.length < 2) return false;
@@ -1798,6 +2033,8 @@ function autoPlay(room, seat) {
   if (room.phase !== "PLAY") return false;
   if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) return false;
   if (room.turnSeat !== seat) return false;
+
+  touchAfk(room, seat, "PLAY");
 
   const legal = computeLegalForSeat(room, seat);
   const c = pickWeakestCard(legal);
@@ -1998,6 +2235,8 @@ io.on("connection", (socket) => {
   socket.on("leaderboard:top10", (a, b) => {
     const ack = typeof a === "function" ? a : (typeof b === "function" ? b : null);
     try {
+      if (!rlConsume(rlKey(socket, "leaderboard:top10"), 10, 10_000))
+        return ack && ack({ ok: false, error: "RATE_LIMIT" });
       const payload = typeof a === "object" && a && typeof a !== "function" ? a : {};
       const scopeRaw = String(payload?.scope || "all").toLowerCase();
       const scope = scopeRaw === "week" || scopeRaw === "month" ? scopeRaw : "all";
@@ -2015,6 +2254,36 @@ io.on("connection", (socket) => {
     } catch {}
   });
 
+  // Report user (minimum moderation)
+  socket.on("moderation:report", (payload, ack) => {
+    try {
+      if (!rlConsume(rlKey(socket, "moderation:report"), 4, 60_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
+      const roomId = socket.data.roomId;
+      const seat = socket.data.seat;
+      const room = roomId ? rooms.get(roomId) : null;
+      if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+
+      const reporter = safeUsername(room.players?.[seat]?.username || "");
+      const target = safeUsername(payload?.target || "");
+      const reason = String(payload?.reason || "").trim().slice(0, 300);
+      if (!reporter || !target) return ack?.({ ok: false, error: "BAD_INPUT" });
+
+      appendJsonl(REPORTS_PATH, {
+        ts: Date.now(),
+        reporter,
+        target,
+        roomId: room.roomId,
+        reason,
+        via: "socket",
+        ip: ipFromSocket(socket),
+      });
+      ack?.({ ok: true });
+    } catch {
+      ack?.({ ok: false, error: "REPORT_FAILED" });
+    }
+  });
+
   function pickSeat(room, username) {
     let seat = room.players.findIndex((p) => p.username === username && !p.connected);
     if (seat !== -1) return seat;
@@ -2028,6 +2297,8 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload, ack) => {
     try {
+      if (!rlConsume(rlKey(socket, "room:create"), 6, 10_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
       const authed = authFromSocket();
       const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
       const avatarUrl =
@@ -2035,6 +2306,8 @@ io.on("connection", (socket) => {
       const clientSeed = String(payload?.seed || "").trim();
 
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+      if (isBannedUsername(username) || isBannedIp(ipFromSocket(socket)))
+        return ack?.({ ok: false, error: "BANNED" });
 
       const roomId = normRoomId(payload?.roomId) || randomRoomId();
       const room = getOrCreateRoom(roomId);
@@ -2074,6 +2347,8 @@ io.on("connection", (socket) => {
 
   socket.on("room:join", (payload, ack) => {
     try {
+      if (!rlConsume(rlKey(socket, "room:join"), 8, 10_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
       const authed = authFromSocket();
       const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
       const avatarUrl =
@@ -2083,6 +2358,8 @@ io.on("connection", (socket) => {
       const roomId = normRoomId(payload?.roomId);
       if (!roomId) return ack?.({ ok: false, error: "ROOM_REQUIRED" });
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+      if (isBannedUsername(username) || isBannedIp(ipFromSocket(socket)))
+        return ack?.({ ok: false, error: "BANNED" });
 
       const room = rooms.get(roomId);
       if (!room) return ack?.({ ok: false, error: "ROOM_NOT_FOUND" });
@@ -2123,6 +2400,8 @@ io.on("connection", (socket) => {
   // Ātrā spēle: iemet pirmajā brīvajā istabā (vai izveido jaunu)
   socket.on("room:quick", (payload, ack) => {
     try {
+      if (!rlConsume(rlKey(socket, "room:quick"), 8, 10_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
       const authed = authFromSocket();
       const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
       const avatarUrl =
@@ -2130,6 +2409,8 @@ io.on("connection", (socket) => {
       const clientSeed = String(payload?.seed || "").trim();
 
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+      if (isBannedUsername(username) || isBannedIp(ipFromSocket(socket)))
+        return ack?.({ ok: false, error: "BANNED" });
 
       // atrodam pirmo “LOBBY” istabu ar brīvu vietu; prioritāte — kur jau ir 2 spēlētāji (ātrāk saliekas 3)
       const candidates = [];
@@ -2189,6 +2470,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("room:leave", (_payload, ack) => {
+    if (!rlConsume(rlKey(socket, "room:leave"), 6, 10_000))
+      return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -2273,6 +2556,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("zole:bid", (payload, ack) => {
+    if (!rlConsume(rlKey(socket, "zole:bid"), 12, 10_000)) return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -2296,6 +2580,10 @@ io.on("connection", (socket) => {
 
     const allowed = new Set(["GARĀM", "ŅEMT GALDU", "ZOLE", "MAZĀ"]);
     if (!allowed.has(bidRaw)) return ack?.({ ok: false, error: "BAD_BID" });
+
+    try {
+      if (room.players?.[seat]?.afk) room.players[seat].afk.auto = 0;
+    } catch {}
 
     room.bids.push({ seat, bid: bidRaw });
 
@@ -2356,6 +2644,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("zole:discard", (payload, ack) => {
+    if (!rlConsume(rlKey(socket, "zole:discard"), 10, 10_000))
+      return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -2383,6 +2673,10 @@ io.on("connection", (socket) => {
 
     room.discard = picked;
 
+    try {
+      if (room.players?.[seat]?.afk) room.players[seat].afk.auto = 0;
+    } catch {}
+
     ack?.({ ok: true });
 
     preparePlayPhase(room);
@@ -2390,6 +2684,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("zole:play", (payload, ack) => {
+    if (!rlConsume(rlKey(socket, "zole:play"), 18, 10_000)) return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -2413,6 +2708,10 @@ io.on("connection", (socket) => {
 
     const played = hand.splice(idx, 1)[0];
     room.trickPlays.push({ seat, card: played });
+
+    try {
+      if (room.players?.[seat]?.afk) room.players[seat].afk.auto = 0;
+    } catch {}
 
     ack?.({ ok: true });
 
