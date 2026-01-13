@@ -923,24 +923,20 @@ function renderPlayerCard(p, whereLabel) {
   if (!p || !p.username) {
     return `<div class="zg-seat-inner">
       <div class="zg-seat-topline">
-        <div class="zg-avatar zg-avatar-empty"></div>
         <div class="zg-name">—</div>
+        <div class="zg-pts">—</div>
       </div>
-      <div class="zg-seat-sub">tukšs</div>
+      <div class="zg-subline"><span class="zg-badges"><span class="zg-badge">tukšs</span></span></div>
     </div>`;
   }
 
-  const initial = escapeHtml((p.username || "?").slice(0, 1).toUpperCase());
-  const av = safeAvatar(p.avatarUrl || "");
-  const avatarWrapCls = av ? "zg-avatar" : "zg-avatar zg-avatar-empty";
-  const avatarInner = av
-    ? `<img class="zg-avatar-img" src="${escapeHtml(av)}" alt="" referrerpolicy="no-referrer" />`
-    : `<div class="zg-avatar-letter">${initial}</div>`;
-
-  const cardsLeft = roomState?.meta?.handSizes?.[p.seat] ?? 0;
   const pts = typeof p.matchPts === "number" ? p.matchPts : 0;
   const ready =
     roomState?.phase === "LOBBY" && p.ready ? `<span class="zg-badge zg-badge-on">READY</span>` : "";
+  const off =
+    !p.connected && p.username
+      ? `<span class="zg-badge zg-badge-warn" title="Nav savienojuma">OFFLINE</span>`
+      : "";
 
   const c = roomState?.contract;
   const big = roomState?.bigSeat;
@@ -966,24 +962,19 @@ function renderPlayerCard(p, whereLabel) {
 
   const isBig = typeof big === "number" && big === p.seat && !isGaldinsContract(c);
   const bigIcon = isBig ? `<span class="zg-ico zg-ico-big" title="LIELAIS">★</span>` : "";
-
-  const backs = Array.from({ length: Math.min(8, cardsLeft) })
-    .map(() => `<span class="zg-back"></span>`)
-    .join("");
-
-  const badges = [roleBadge, contractBadge, actBadge, ready].filter(Boolean).join(" ");
+  const who = whereLabel === "tu" ? `<span class="zg-badge zg-badge-dim">TU</span>` : "";
+  const badges = [who, roleBadge, contractBadge, actBadge, ready, off].filter(Boolean).join(" ");
 
   return `<div class="zg-seat-inner">
     <div class="zg-seat-topline">
-      <div class="${avatarWrapCls}">${avatarInner}</div>
       <div class="zg-nameblock">
         <div class="zg-name">${bigIcon}${turnIcon}${escapeHtml(p.username)}</div>
-        <div class="zg-subline">
-          ${badges ? `<span class="zg-badges">${badges}</span>` : ""}
-        </div>
       </div>
+      <div class="zg-pts" title="PTS">${escapeHtml(String(pts))}</div>
     </div>
-    <div class="zg-backs">${backs}</div>
+    <div class="zg-subline">
+      ${badges ? `<span class="zg-badges">${badges}</span>` : ""}
+    </div>
   </div>`;
 }
 
