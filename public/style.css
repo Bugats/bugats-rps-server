@@ -1219,6 +1219,19 @@ body.zl-game #felt.zg-felt{
   max-width: min(760px, 62vw);
 }
 
+.zg-online{
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(238,242,255,0.86);
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 /* izcelt gājienu/lielo uz seat kartītēm */
 .zg-seat.zg-seat-turn{
   outline: 2px solid rgba(210,164,23,0.70);
@@ -1358,6 +1371,15 @@ body.zl-game #felt.zg-felt{
     font-size: 12px;
     opacity: 0.92;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .zg-online{
+    display: inline-flex;
+    padding: 4px 8px;
+    font-size: 12px;
+    opacity: 0.92;
+    max-width: 62vw;
     overflow: hidden;
     text-overflow: ellipsis;
   }

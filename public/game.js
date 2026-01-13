@@ -30,6 +30,7 @@ safeText(roomLabelEl, ROOM_ID);
 const connDot = $("#connDot");
 const connLabel = $("#connLabel");
 const statusChip = $("#statusChip");
+const onlineChip = $("#onlineChip");
 
 const seatLeft = $("#seatLeft");
 const seatRight = $("#seatRight");
@@ -1695,6 +1696,17 @@ function renderAll() {
       statusChip.dataset.base = base;
       statusChip.textContent = base;
       syncTurnCountdown();
+    }
+  } catch {}
+
+  // Online indikators (cik/kurš ir pieslēdzies)
+  try {
+    if (onlineChip) {
+      const pls = Array.isArray(roomState?.players) ? roomState.players : [];
+      const total = pls.filter((p) => p && p.username).length;
+      const on = pls.filter((p) => p && p.username && p.connected).map((p) => p.username);
+      onlineChip.textContent = `ON: ${on.length}/${Math.max(3, total || 3)}`;
+      onlineChip.title = on.length ? `Online: ${on.join(", ")}` : "Neviens nav online";
     }
   } catch {}
 
