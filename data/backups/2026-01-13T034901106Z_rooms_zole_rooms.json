@@ -1,0 +1,606 @@
+{
+  "ok": true,
+  "ts": 1768276141105,
+  "rooms": [
+    {
+      "roomId": "SMK2",
+      "phase": "DISCARD",
+      "handNo": 1,
+      "dealerSeat": 0,
+      "updatedAt": 1768276050059,
+      "userPts": {
+        "A": 1000,
+        "B": 1000,
+        "C": 1000
+      },
+      "userPtsOrder": [
+        "A",
+        "B",
+        "C"
+      ],
+      "players": [
+        {
+          "seat": 0,
+          "username": "A",
+          "avatarUrl": "",
+          "ready": false,
+          "seed": "seed-A",
+          "matchPts": 1000
+        },
+        {
+          "seat": 1,
+          "username": "B",
+          "avatarUrl": "",
+          "ready": false,
+          "seed": "seed-B",
+          "matchPts": 1000
+        },
+        {
+          "seat": 2,
+          "username": "C",
+          "avatarUrl": "",
+          "ready": false,
+          "seed": "seed-C",
+          "matchPts": 1000
+        }
+      ],
+      "fairness": {
+        "serverCommit": "dc379ceddc3cd0481618b2bb37560937239f7048f3809171fc4ddddceaec4110",
+        "serverSecret": "416a4035120073989a3486028b6d71c6",
+        "serverReveal": "416a4035120073989a3486028b6d71c6",
+        "combinedHash": "9ec5caf2327022c75c9779726d3b92264829b5d65b1ebfc23a48f4b07194d294"
+      },
+      "bids": [
+        {
+          "seat": 2,
+          "bid": "ŅEMT GALDU"
+        }
+      ],
+      "bidTurnSeat": 2,
+      "contract": "ŅEMT GALDU",
+      "bigSeat": 2,
+      "deck": [
+        {
+          "r": "7",
+          "s": "D"
+        },
+        {
+          "r": "K",
+          "s": "H"
+        },
+        {
+          "r": "Q",
+          "s": "C"
+        },
+        {
+          "r": "9",
+          "s": "D"
+        },
+        {
+          "r": "Q",
+          "s": "S"
+        },
+        {
+          "r": "8",
+          "s": "D"
+        },
+        {
+          "r": "9",
+          "s": "S"
+        },
+        {
+          "r": "10",
+          "s": "S"
+        },
+        {
+          "r": "A",
+          "s": "S"
+        },
+        {
+          "r": "J",
+          "s": "H"
+        },
+        {
+          "r": "10",
+          "s": "D"
+        },
+        {
+          "r": "A",
+          "s": "C"
+        },
+        {
+          "r": "J",
+          "s": "D"
+        },
+        {
+          "r": "9",
+          "s": "H"
+        },
+        {
+          "r": "10",
+          "s": "H"
+        },
+        {
+          "r": "A",
+          "s": "H"
+        },
+        {
+          "r": "J",
+          "s": "S"
+        },
+        {
+          "r": "K",
+          "s": "C"
+        },
+        {
+          "r": "K",
+          "s": "S"
+        },
+        {
+          "r": "J",
+          "s": "C"
+        },
+        {
+          "r": "K",
+          "s": "D"
+        },
+        {
+          "r": "10",
+          "s": "C"
+        },
+        {
+          "r": "9",
+          "s": "C"
+        },
+        {
+          "r": "Q",
+          "s": "D"
+        },
+        {
+          "r": "A",
+          "s": "D"
+        },
+        {
+          "r": "Q",
+          "s": "H"
+        }
+      ],
+      "hands": [
+        [
+          {
+            "r": "7",
+            "s": "D"
+          },
+          {
+            "r": "K",
+            "s": "H"
+          },
+          {
+            "r": "Q",
+            "s": "C"
+          },
+          {
+            "r": "9",
+            "s": "D"
+          },
+          {
+            "r": "Q",
+            "s": "S"
+          },
+          {
+            "r": "8",
+            "s": "D"
+          },
+          {
+            "r": "9",
+            "s": "S"
+          },
+          {
+            "r": "10",
+            "s": "S"
+          }
+        ],
+        [
+          {
+            "r": "A",
+            "s": "S"
+          },
+          {
+            "r": "J",
+            "s": "H"
+          },
+          {
+            "r": "10",
+            "s": "D"
+          },
+          {
+            "r": "A",
+            "s": "C"
+          },
+          {
+            "r": "J",
+            "s": "D"
+          },
+          {
+            "r": "9",
+            "s": "H"
+          },
+          {
+            "r": "10",
+            "s": "H"
+          },
+          {
+            "r": "A",
+            "s": "H"
+          }
+        ],
+        [
+          {
+            "r": "J",
+            "s": "S"
+          },
+          {
+            "r": "K",
+            "s": "C"
+          },
+          {
+            "r": "K",
+            "s": "S"
+          },
+          {
+            "r": "J",
+            "s": "C"
+          },
+          {
+            "r": "K",
+            "s": "D"
+          },
+          {
+            "r": "10",
+            "s": "C"
+          },
+          {
+            "r": "9",
+            "s": "C"
+          },
+          {
+            "r": "Q",
+            "s": "D"
+          },
+          {
+            "r": "A",
+            "s": "D"
+          },
+          {
+            "r": "Q",
+            "s": "H"
+          }
+        ]
+      ],
+      "talon": [
+        {
+          "r": "A",
+          "s": "D"
+        },
+        {
+          "r": "Q",
+          "s": "H"
+        }
+      ],
+      "discard": [],
+      "taken": [
+        [],
+        [],
+        []
+      ],
+      "leaderSeat": 2,
+      "turnSeat": 2,
+      "turnEndsAt": 1768276141184,
+      "trickPlays": [],
+      "trickPauseUntil": 0,
+      "galdsTrickNo": 0,
+      "galdsTalonIndex": 0,
+      "lastResult": null
+    },
+    {
+      "roomId": "SMK3",
+      "phase": "DISCARD",
+      "handNo": 1,
+      "dealerSeat": 0,
+      "updatedAt": 1768276118388,
+      "userPts": {
+        "A": 1000,
+        "B": 1000,
+        "C": 1000
+      },
+      "userPtsOrder": [
+        "A",
+        "B",
+        "C"
+      ],
+      "players": [
+        {
+          "seat": 0,
+          "username": "A",
+          "avatarUrl": "",
+          "ready": true,
+          "seed": "seed-A",
+          "matchPts": 1000
+        },
+        {
+          "seat": 1,
+          "username": "B",
+          "avatarUrl": "",
+          "ready": true,
+          "seed": "seed-B",
+          "matchPts": 1000
+        },
+        {
+          "seat": 2,
+          "username": "C",
+          "avatarUrl": "",
+          "ready": true,
+          "seed": "seed-C",
+          "matchPts": 1000
+        }
+      ],
+      "fairness": {
+        "serverCommit": "5c51e97d7a05723302377403aea4db1c2989662dbd10068d5bbcd88b728341f5",
+        "serverSecret": "7b8bfec31cc477ad497807d5a19860dc",
+        "serverReveal": "7b8bfec31cc477ad497807d5a19860dc",
+        "combinedHash": "969cb31366e2b3ff507a36c8fd011fdd66956ea7254d660b03a91bb9eb2f35ee"
+      },
+      "bids": [
+        {
+          "seat": 2,
+          "bid": "ŅEMT GALDU"
+        }
+      ],
+      "bidTurnSeat": 2,
+      "contract": "ŅEMT GALDU",
+      "bigSeat": 2,
+      "deck": [
+        {
+          "r": "9",
+          "s": "S"
+        },
+        {
+          "r": "Q",
+          "s": "H"
+        },
+        {
+          "r": "K",
+          "s": "D"
+        },
+        {
+          "r": "A",
+          "s": "C"
+        },
+        {
+          "r": "A",
+          "s": "S"
+        },
+        {
+          "r": "10",
+          "s": "S"
+        },
+        {
+          "r": "A",
+          "s": "H"
+        },
+        {
+          "r": "J",
+          "s": "H"
+        },
+        {
+          "r": "7",
+          "s": "D"
+        },
+        {
+          "r": "Q",
+          "s": "D"
+        },
+        {
+          "r": "K",
+          "s": "C"
+        },
+        {
+          "r": "9",
+          "s": "D"
+        },
+        {
+          "r": "10",
+          "s": "H"
+        },
+        {
+          "r": "9",
+          "s": "H"
+        },
+        {
+          "r": "8",
+          "s": "D"
+        },
+        {
+          "r": "J",
+          "s": "D"
+        },
+        {
+          "r": "10",
+          "s": "C"
+        },
+        {
+          "r": "9",
+          "s": "C"
+        },
+        {
+          "r": "A",
+          "s": "D"
+        },
+        {
+          "r": "J",
+          "s": "S"
+        },
+        {
+          "r": "Q",
+          "s": "C"
+        },
+        {
+          "r": "K",
+          "s": "S"
+        },
+        {
+          "r": "Q",
+          "s": "S"
+        },
+        {
+          "r": "10",
+          "s": "D"
+        },
+        {
+          "r": "J",
+          "s": "C"
+        },
+        {
+          "r": "K",
+          "s": "H"
+        }
+      ],
+      "hands": [
+        [
+          {
+            "r": "9",
+            "s": "S"
+          },
+          {
+            "r": "Q",
+            "s": "H"
+          },
+          {
+            "r": "K",
+            "s": "D"
+          },
+          {
+            "r": "A",
+            "s": "C"
+          },
+          {
+            "r": "A",
+            "s": "S"
+          },
+          {
+            "r": "10",
+            "s": "S"
+          },
+          {
+            "r": "A",
+            "s": "H"
+          },
+          {
+            "r": "J",
+            "s": "H"
+          }
+        ],
+        [
+          {
+            "r": "7",
+            "s": "D"
+          },
+          {
+            "r": "Q",
+            "s": "D"
+          },
+          {
+            "r": "K",
+            "s": "C"
+          },
+          {
+            "r": "9",
+            "s": "D"
+          },
+          {
+            "r": "10",
+            "s": "H"
+          },
+          {
+            "r": "9",
+            "s": "H"
+          },
+          {
+            "r": "8",
+            "s": "D"
+          },
+          {
+            "r": "J",
+            "s": "D"
+          }
+        ],
+        [
+          {
+            "r": "10",
+            "s": "C"
+          },
+          {
+            "r": "9",
+            "s": "C"
+          },
+          {
+            "r": "A",
+            "s": "D"
+          },
+          {
+            "r": "J",
+            "s": "S"
+          },
+          {
+            "r": "Q",
+            "s": "C"
+          },
+          {
+            "r": "K",
+            "s": "S"
+          },
+          {
+            "r": "Q",
+            "s": "S"
+          },
+          {
+            "r": "10",
+            "s": "D"
+          },
+          {
+            "r": "J",
+            "s": "C"
+          },
+          {
+            "r": "K",
+            "s": "H"
+          }
+        ]
+      ],
+      "talon": [
+        {
+          "r": "J",
+          "s": "C"
+        },
+        {
+          "r": "K",
+          "s": "H"
+        }
+      ],
+      "discard": [],
+      "taken": [
+        [],
+        [],
+        []
+      ],
+      "leaderSeat": 2,
+      "turnSeat": 2,
+      "turnEndsAt": 1768276143388,
+      "trickPlays": [],
+      "trickPauseUntil": 0,
+      "galdsTrickNo": 0,
+      "galdsTalonIndex": 0,
+      "lastResult": null
+    }
+  ]
+}
