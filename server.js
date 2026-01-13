@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
+const { computePayEachClassic, computeMazaPayEach, computeGaldinsDeltas } = require("./scoring");
 
 const PORT = process.env.PORT || 10080;
 
@@ -112,12 +113,21 @@ const AUTO_NEXT_HAND_MS = Math.max(
   Math.min(20000, parseInt(process.env.AUTO_NEXT_HAND_MS || "2000", 10) || 2000)
 );
 
+// Turn taimeris (lai refresh/disconnect netraucē citiem) — 25 sekundes katram gājienam
+const TURN_MS = Math.max(5000, Math.min(60000, parseInt(process.env.TURN_MS || "25000", 10) || 25000));
+
+// Pauze pēc 3. kārts stiķī (lai visi paspēj redzēt)
+const TRICK_PAUSE_MS = Math.max(
+  0,
+  Math.min(5000, parseInt(process.env.TRICK_PAUSE_MS || "1500", 10) || 1500)
+);
+
 // “Galda/Galdiņa” pamata likme
 const GALDS_PAY = Math.max(
   1,
   Math.min(
-    5,
-    parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "1", 10) || 1
+    10,
+    parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "2", 10) || 2
   )
 );
 
@@ -134,8 +144,21 @@ const app = express();
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "256kb" }));
 
-app.get("/", (_req, res) => res.send("OK"));
-app.get("/health", (_req, res) => res.json({ ok: true }));
+// Statiskā UI (lai "galds" var būt pilnekrāna klientā)
+const PUBLIC_DIR = path.join(__dirname, "public");
+app.use(express.static(PUBLIC_DIR, { extensions: ["html"] }));
+
+app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
+app.get("/api/ping", (_req, res) => res.send("OK"));
+app.get("/health", (_req, res) =>
+  res.json({
+    ok: true,
+    ts: Date.now(),
+    uptimeSec: Math.floor(process.uptime()),
+    rooms: typeof rooms?.size === "number" ? rooms.size : undefined,
+    mem: process.memoryUsage(),
+  })
+);
 
 /* ============================
    GLOBAL LEADERBOARD (TOP10)
@@ -157,15 +180,267 @@ function readJson(file, fallback) {
   }
 }
 function writeJson(file, obj) {
+  // Atomic write (tmp + rename) — lai prod restart/powerloss nesabojā JSON.
   try {
-    fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
+    const tmp = `${file}.tmp`;
+    const data = JSON.stringify(obj, null, 2);
+    fs.writeFileSync(tmp, data, "utf8");
+    fs.renameSync(tmp, file);
   } catch {}
 }
 
 ensureDir(DATA_DIR);
 
+/* ============================
+   PROD: LOGI + BACKUP
+   ============================ */
+const LOG_DIR = path.join(DATA_DIR, "logs");
+const BACKUP_DIR = path.join(DATA_DIR, "backups");
+ensureDir(LOG_DIR);
+ensureDir(BACKUP_DIR);
+
+const LOG_TO_FILE = String(process.env.LOG_TO_FILE || "1") !== "0";
+const LOG_FILE = path.join(LOG_DIR, "server.log");
+
+function logLine(level, msg, extra) {
+  const ts = new Date().toISOString();
+  const line =
+    `[${ts}] [${String(level || "INFO").toUpperCase()}] ${String(msg || "")}` +
+    (extra ? ` ${String(extra)}` : "");
+  try {
+    // eslint-disable-next-line no-console
+    console.log(line);
+  } catch {}
+  if (!LOG_TO_FILE) return;
+  try {
+    fs.appendFileSync(LOG_FILE, line + "\n", "utf8");
+  } catch {}
+}
+
+function safeUnlink(p) {
+  try {
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch {}
+}
+
+function backupFile(src, tag) {
+  try {
+    if (!fs.existsSync(src)) return;
+    const base = path.basename(src);
+    const ts = new Date().toISOString().replaceAll(":", "").replaceAll(".", "");
+    const name = `${ts}_${String(tag || "backup")}_${base}`;
+    const dst = path.join(BACKUP_DIR, name);
+    fs.copyFileSync(src, dst);
+  } catch {}
+}
+
+function rotateBackups(keep = 60) {
+  try {
+    const files = fs
+      .readdirSync(BACKUP_DIR)
+      .map((f) => ({ f, p: path.join(BACKUP_DIR, f) }))
+      .filter((x) => fs.statSync(x.p).isFile())
+      .sort((a, b) => fs.statSync(b.p).mtimeMs - fs.statSync(a.p).mtimeMs);
+    for (let i = keep; i < files.length; i++) safeUnlink(files[i].p);
+  } catch {}
+}
+
+// Room state persist (restart-safe)
+const ROOMS_PATH = path.join(DATA_DIR, "zole_rooms.json");
+const ENABLE_ROOM_PERSIST = String(process.env.ENABLE_ROOM_PERSIST || "1") !== "0";
+const ROOM_SAVE_INTERVAL_MS = Math.max(
+  500,
+  Math.min(20000, parseInt(process.env.ROOM_SAVE_INTERVAL_MS || "5000", 10) || 5000)
+);
+const ROOM_PERSIST_MAX_AGE_MS = Math.max(
+  60_000,
+  Math.min(
+    7 * 24 * 60 * 60 * 1000,
+    parseInt(process.env.ROOM_PERSIST_MAX_AGE_MS || String(24 * 60 * 60 * 1000), 10) ||
+      24 * 60 * 60 * 1000
+  )
+);
+
+/* ============================
+   PUBLIC PROD: anti-spam + AFK + moderation (minimum)
+   ============================ */
+const RL_ENABLED = String(process.env.RL_ENABLED || "1") !== "0";
+const RL_MAX_KEYS = Math.max(2000, Math.min(200000, parseInt(process.env.RL_MAX_KEYS || "20000", 10) || 20000));
+
+const AFK_AUTO_LIMIT = Math.max(2, Math.min(12, parseInt(process.env.AFK_AUTO_LIMIT || "4", 10) || 4));
+const AFK_AUTO_DECAY_MS = Math.max(
+  10_000,
+  Math.min(300_000, parseInt(process.env.AFK_AUTO_DECAY_MS || "90000", 10) || 90000)
+);
+
+const BANS_PATH = path.join(DATA_DIR, "zole_bans.json");
+let BANS = readJson(BANS_PATH, { users: {}, ips: {} });
+const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
+const REPORTS_PATH = path.join(DATA_DIR, "zole_reports.jsonl");
+const FEEDBACK_PATH = path.join(DATA_DIR, "zole_feedback.jsonl");
+
+function bansSave() {
+  writeJson(BANS_PATH, BANS);
+}
+function isBannedUsername(username) {
+  const u = safeUsername(username);
+  if (!u) return false;
+  const b = BANS?.users?.[u];
+  if (!b) return false;
+  if (b.until && Date.now() > b.until) return false;
+  return true;
+}
+function ipFromSocket(socket) {
+  try {
+    const xf = String(socket?.handshake?.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
+    return xf || String(socket?.handshake?.address || "").trim() || "";
+  } catch {
+    return "";
+  }
+}
+function isBannedIp(ip) {
+  const x = String(ip || "").trim();
+  if (!x) return false;
+  const b = BANS?.ips?.[x];
+  if (!b) return false;
+  if (b.until && Date.now() > b.until) return false;
+  return true;
+}
+function appendJsonl(file, obj) {
+  try {
+    fs.appendFileSync(file, JSON.stringify(obj) + "\n", "utf8");
+  } catch {}
+}
+
+// Rate limit (token bucket): key -> {t,last}
+const RL = new Map();
+function rlConsume(key, limit, perMs) {
+  if (!RL_ENABLED) return true;
+  const now = Date.now();
+  const k = String(key || "");
+  if (!k) return true;
+
+  let s = RL.get(k);
+  if (!s) {
+    s = { t: limit, last: now };
+    RL.set(k, s);
+  }
+  const elapsed = Math.max(0, now - (s.last || now));
+  s.last = now;
+  const refill = (elapsed / perMs) * limit;
+  s.t = Math.min(limit, (s.t || 0) + refill);
+  if (s.t < 1) return false;
+  s.t -= 1;
+
+  // periodic cleanup
+  if (RL.size > RL_MAX_KEYS) {
+    let i = 0;
+    for (const kk of RL.keys()) {
+      RL.delete(kk);
+      if (++i >= Math.floor(RL_MAX_KEYS * 0.2)) break;
+    }
+  }
+  return true;
+}
+function rlKey(socket, ev, scope) {
+  const ip = ipFromSocket(socket);
+  return `${String(scope || "sock")}:${String(socket?.id || "noid")}:${ip}:${String(ev || "")}`;
+}
+
+function touchAfk(room, seat, kind) {
+  try {
+    const p = room?.players?.[seat];
+    if (!p || !p.username) return;
+    const now = Date.now();
+    if (!p.afk) p.afk = { auto: 0, lastAutoAt: 0 };
+
+    // decay: ja sen nebija auto, sākam no jauna
+    if (p.afk.lastAutoAt && now - p.afk.lastAutoAt > AFK_AUTO_DECAY_MS) p.afk.auto = 0;
+    p.afk.lastAutoAt = now;
+    p.afk.auto = Number(p.afk.auto || 0) + 1;
+
+    if (p.afk.auto < AFK_AUTO_LIMIT) return;
+
+    // AFK limit sasniegts
+    if (room.phase === "LOBBY") {
+      // lobby: uzreiz atbrīvo vietu
+      const uname = p.username;
+      if (uname) setUserPts(room, uname, p.matchPts);
+      room.players[seat] = {
+        seat,
+        username: null,
+        avatarUrl: "",
+        ready: false,
+        connected: false,
+        socketId: null,
+        seed: null,
+        matchPts: START_PTS,
+        afk: null,
+      };
+      emitRoom(room, { note: "AFK_KICK_LOBBY", seat });
+      return;
+    }
+
+    // spēles laikā: neizjaucam partiju, bet atzīmējam kā AFK un pēc partijas atbrīvosim vietu
+    p.connected = false;
+    p.socketId = null;
+    p.ready = false;
+    p.afk.kickAfterHand = true;
+    emitRoom(room, { note: "AFK_MARKED", seat });
+  } catch {}
+}
+
 let LB = readJson(LB_PATH, { players: {} });
 // LB.players[username] = { username, avatarUrl, pts, hands, updatedAt }
+
+function isoWeekKey(ts = Date.now()) {
+  // YYYY-Www (ISO nedēļa)
+  const d = new Date(ts);
+  // UTC, lai nebūtu “svētdiena/pirmdiena” laika zonas gļuki
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = date.getUTCDay() || 7; // 1..7 (Mon..Sun)
+  // uz ceturtdienu (ISO nedēļa definēta pēc ceturtdienas)
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+  const y = date.getUTCFullYear();
+  return `${y}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function monthKey(ts = Date.now()) {
+  const d = new Date(ts);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function ensureSeasonFields(p, ts = Date.now()) {
+  let changed = false;
+  const wk = isoWeekKey(ts);
+  const mk = monthKey(ts);
+
+  if (p.weekKey !== wk) {
+    p.weekKey = wk;
+    p.weekPts = 0;
+    changed = true;
+  }
+  if (p.monthKey !== mk) {
+    p.monthKey = mk;
+    p.monthPts = 0;
+    changed = true;
+  }
+
+  if (typeof p.weekPts !== "number" || !Number.isFinite(p.weekPts)) {
+    p.weekPts = 0;
+    changed = true;
+  }
+  if (typeof p.monthPts !== "number" || !Number.isFinite(p.monthPts)) {
+    p.monthPts = 0;
+    changed = true;
+  }
+
+  return changed;
+}
 
 function lbSave() {
   writeJson(LB_PATH, LB);
@@ -187,6 +462,10 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
           ? initPtsIfNew
           : START_PTS,
       hands: 0,
+      weekKey: isoWeekKey(now),
+      weekPts: 0,
+      monthKey: monthKey(now),
+      monthPts: 0,
       updatedAt: now,
     };
     LB.players[username] = p;
@@ -207,6 +486,8 @@ function lbTouch(username, avatarUrl, initPtsIfNew) {
     p.hands = 0;
     changed = true;
   }
+
+  if (ensureSeasonFields(p, now)) changed = true;
 
   p.updatedAt = now;
   return { player: p, changed };
@@ -230,6 +511,10 @@ function lbApplyDeltas(roomPlayers, deltasByUsername) {
 
     if (d !== 0) {
       player.pts = Number(player.pts || 0) + d;
+      // sezona: krājam tikai šīs nedēļas / šī mēneša izmaiņas
+      if (ensureSeasonFields(player, player.updatedAt)) any = true;
+      player.weekPts = Number(player.weekPts || 0) + d;
+      player.monthPts = Number(player.monthPts || 0) + d;
     } else if (changed) {
       any = true;
     }
@@ -238,11 +523,16 @@ function lbApplyDeltas(roomPlayers, deltasByUsername) {
   if (any) lbSave();
 }
 
-function lbTop10() {
+function lbTop10(scope = "all") {
   const arr = Object.values(LB.players || {});
+  const pick = (p) => {
+    if (scope === "week") return Number(p.weekPts || 0) || 0;
+    if (scope === "month") return Number(p.monthPts || 0) || 0;
+    return Number(p.pts || 0) || 0;
+  };
   arr.sort(
     (a, b) =>
-      Number(b.pts || 0) - Number(a.pts || 0) ||
+      pick(b) - pick(a) ||
       Number(b.hands || 0) - Number(a.hands || 0) ||
       String(a.username || "").localeCompare(String(b.username || ""))
   );
@@ -260,9 +550,19 @@ function lbPts(username) {
 // Leaderboard routes (aliases)
 app.get(
   ["/leaderboard", "/api/leaderboard", "/auth/leaderboard", "/api/auth/leaderboard"],
-  (_req, res) => {
-    const top10 = lbTop10();
-    res.json({ ok: true, top10, top: top10, ts: Date.now() });
+  (req, res) => {
+    const scopeRaw = String(req.query?.scope || "all").toLowerCase();
+    const scope = scopeRaw === "week" || scopeRaw === "month" ? scopeRaw : "all";
+    const top10 = lbTop10(scope);
+    res.json({
+      ok: true,
+      scope,
+      weekKey: isoWeekKey(),
+      monthKey: monthKey(),
+      top10,
+      top: top10,
+      ts: Date.now(),
+    });
   }
 );
 
@@ -490,6 +790,119 @@ app.post(["/logout", "/auth/logout", "/api/logout", "/api/auth/logout"], (_req, 
   res.json({ ok: true, ts: Date.now() });
 });
 
+/* ============================
+   MODERATION (minimum): report + ban/unban (admin)
+   ============================ */
+app.post(["/report", "/api/report", "/auth/report", "/api/auth/report"], (req, res) => {
+  try {
+    const token = getTokenFromReq(req);
+    const v = verifyToken(token);
+    if (!v.ok) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+
+    const reporter = safeUsername(v.payload?.username);
+    const target = safeUsername(req.body?.target || "");
+    const reason = String(req.body?.reason || "").trim().slice(0, 300);
+    const roomId = normRoomId(req.body?.roomId || "");
+    if (!reporter || !target) return res.status(400).json({ ok: false, error: "BAD_INPUT" });
+
+    appendJsonl(REPORTS_PATH, {
+      ts: Date.now(),
+      reporter,
+      target,
+      roomId: roomId || null,
+      reason,
+      via: "http",
+      ip: String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || ""),
+    });
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "REPORT_FAILED" });
+  }
+});
+
+app.post(["/feedback", "/api/feedback", "/auth/feedback", "/api/auth/feedback"], (req, res) => {
+  try {
+    // auth nav obligāts (var būt anonīms)
+    const token = getTokenFromReq(req);
+    const v = verifyToken(token);
+    const username = v.ok ? safeUsername(v.payload?.username) : null;
+
+    const type = String(req.body?.type || "feedback").trim().slice(0, 24);
+    const message = String(req.body?.message || "").trim().slice(0, 2000);
+    const roomId = normRoomId(req.body?.roomId || "");
+    const page = String(req.body?.page || "").trim().slice(0, 64);
+    const meta = req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : null;
+
+    if (!message) return res.status(400).json({ ok: false, error: "EMPTY" });
+
+    appendJsonl(FEEDBACK_PATH, {
+      ts: Date.now(),
+      username,
+      type,
+      message,
+      roomId: roomId || null,
+      page: page || null,
+      meta,
+      ip: String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || ""),
+      ua: String(req.headers["user-agent"] || ""),
+    });
+
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "FEEDBACK_FAILED" });
+  }
+});
+
+app.post(["/admin/ban", "/api/admin/ban"], (req, res) => {
+  try {
+    if (!ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "ADMIN_DISABLED" });
+    const tok = String(req.headers["x-admin-token"] || "").trim();
+    if (tok !== ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+
+    const username = safeUsername(req.body?.username || "");
+    const ip = String(req.body?.ip || "").trim();
+    const reason = String(req.body?.reason || "").trim().slice(0, 300);
+    const minutes = Math.max(0, Math.min(525600, parseInt(req.body?.minutes || "0", 10) || 0));
+    const until = minutes ? Date.now() + minutes * 60_000 : null; // null = permanent
+    if (!username && !ip) return res.status(400).json({ ok: false, error: "BAD_INPUT" });
+
+    if (username) {
+      if (!BANS.users) BANS.users = {};
+      BANS.users[username] = { until, reason, ts: Date.now() };
+    }
+    if (ip) {
+      if (!BANS.ips) BANS.ips = {};
+      BANS.ips[ip] = { until, reason, ts: Date.now() };
+    }
+    bansSave();
+    backupFile(BANS_PATH, "bans");
+    rotateBackups(80);
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "BAN_FAILED" });
+  }
+});
+
+app.post(["/admin/unban", "/api/admin/unban"], (req, res) => {
+  try {
+    if (!ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "ADMIN_DISABLED" });
+    const tok = String(req.headers["x-admin-token"] || "").trim();
+    if (tok !== ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+
+    const username = safeUsername(req.body?.username || "");
+    const ip = String(req.body?.ip || "").trim();
+    if (!username && !ip) return res.status(400).json({ ok: false, error: "BAD_INPUT" });
+    if (username && BANS?.users) delete BANS.users[username];
+    if (ip && BANS?.ips) delete BANS.ips[ip];
+    bansSave();
+    backupFile(BANS_PATH, "bans");
+    rotateBackups(80);
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "UNBAN_FAILED" });
+  }
+});
+
 // /me — pieņem Bearer vai cookie; atgriež arī pts/hands
 app.get(["/me", "/auth/me", "/api/me", "/api/auth/me"], (req, res) => {
   const token = getTokenFromReq(req);
@@ -527,8 +940,19 @@ const io = new Server(server, {
 
 function broadcastLeaderboardUpdate() {
   try {
-    const top10 = lbTop10();
-    io.emit("leaderboard:update", { top10, top: top10, ts: Date.now() });
+    const top10All = lbTop10("all");
+    const top10Week = lbTop10("week");
+    const top10Month = lbTop10("month");
+    io.emit("leaderboard:update", {
+      top10: top10All, // backwards compat
+      top: top10All,
+      top10All,
+      top10Week,
+      top10Month,
+      weekKey: isoWeekKey(),
+      monthKey: monthKey(),
+      ts: Date.now(),
+    });
   } catch {}
 }
 
@@ -622,7 +1046,7 @@ const CONTRACT_MAZA = "MAZĀ";
 const CONTRACT_GALDS = "GALDS";
 
 function rulesForContract(contract) {
-  if (contract === CONTRACT_MAZA) return { trumps: false };
+  // Zolē trumpji ir vienmēr (trumpju komplekts ir fiksēts; UI tos rāda ar ♦ simbolu uz kārts).
   return { trumps: true };
 }
 
@@ -940,9 +1364,9 @@ function newRoom(roomId) {
     userPtsOrder: [],
 
     players: [
-      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
-      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
-      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS },
+      { seat: 0, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS, afk: null },
+      { seat: 1, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS, afk: null },
+      { seat: 2, username: null, avatarUrl: "", ready: false, connected: false, socketId: null, seed: null, matchPts: START_PTS, afk: null },
     ],
 
     dealerSeat: 0,
@@ -964,7 +1388,11 @@ function newRoom(roomId) {
 
     leaderSeat: null,
     turnSeat: null,
+    turnEndsAt: 0,
+    turnTimer: null,
     trickPlays: [],
+    trickPauseUntil: 0,
+    trickTimer: null,
 
     galdsTrickNo: 0,
     galdsTalonIndex: 0,
@@ -978,6 +1406,190 @@ function getOrCreateRoom(roomId) {
   const id = normRoomId(roomId) || randomRoomId();
   if (!rooms.has(id)) rooms.set(id, newRoom(id));
   return rooms.get(id);
+}
+
+/* ============================
+   PROD: Room persist (restart-safe)
+   ============================ */
+let _roomsDirty = false;
+let _roomsSaveTimer = null;
+let _roomsLastSavedAt = 0;
+
+function sanitizePlayersForPersist(players) {
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const p = players?.[i] || { seat: i };
+    const username = p?.username ? safeUsername(p.username) : null;
+    out.push({
+      seat: i,
+      username,
+      avatarUrl: username ? String(p.avatarUrl || "") : "",
+      ready: !!p.ready && !!username,
+      seed: username ? String(p.seed || "") : "",
+      matchPts: typeof p.matchPts === "number" && Number.isFinite(p.matchPts) ? p.matchPts : START_PTS,
+    });
+  }
+  return out;
+}
+
+function roomToPersist(room) {
+  return {
+    roomId: room.roomId,
+    phase: room.phase,
+    handNo: room.handNo,
+    dealerSeat: room.dealerSeat,
+    updatedAt: room.updatedAt || Date.now(),
+
+    // userPts cache (lai ātri atjauno pēc reconnect)
+    userPts: room.userPts || null,
+    userPtsOrder: room.userPtsOrder || null,
+
+    players: sanitizePlayersForPersist(room.players),
+
+    fairness: room.fairness
+      ? {
+          serverCommit: room.fairness.serverCommit,
+          serverSecret: room.fairness.serverSecret,
+          serverReveal: room.fairness.serverReveal,
+          combinedHash: room.fairness.combinedHash,
+        }
+      : null,
+
+    bids: Array.isArray(room.bids) ? room.bids : [],
+    bidTurnSeat: room.bidTurnSeat,
+    contract: room.contract,
+    bigSeat: room.bigSeat,
+
+    deck: Array.isArray(room.deck) ? room.deck : null,
+    hands: Array.isArray(room.hands) ? room.hands : [[], [], []],
+    talon: Array.isArray(room.talon) ? room.talon : [],
+    discard: Array.isArray(room.discard) ? room.discard : [],
+    taken: Array.isArray(room.taken) ? room.taken : [[], [], []],
+
+    leaderSeat: room.leaderSeat,
+    turnSeat: room.turnSeat,
+    turnEndsAt: room.turnEndsAt || 0,
+    trickPlays: Array.isArray(room.trickPlays) ? room.trickPlays : [],
+    trickPauseUntil: room.trickPauseUntil || 0,
+
+    galdsTrickNo: room.galdsTrickNo || 0,
+    galdsTalonIndex: room.galdsTalonIndex || 0,
+
+    lastResult: room.lastResult || null,
+  };
+}
+
+function saveRoomsSnapshot(reason) {
+  if (!ENABLE_ROOM_PERSIST) return;
+  try {
+    const now = Date.now();
+    const list = [];
+    for (const r of rooms.values()) {
+      if (!r) continue;
+      // neturam tukšas istabas, un neturam ļoti vecas (lai fails neaug bezgalīgi)
+      const cnt = (r.players || []).filter((p) => p && p.username).length;
+      if (cnt <= 0) continue;
+      if (r.updatedAt && now - r.updatedAt > ROOM_PERSIST_MAX_AGE_MS) continue;
+      list.push(roomToPersist(r));
+    }
+    writeJson(ROOMS_PATH, { ok: true, ts: now, rooms: list });
+    _roomsLastSavedAt = now;
+    _roomsDirty = false;
+    if (reason) logLine("info", `rooms saved (${list.length})`, reason);
+  } catch (e) {
+    logLine("error", "rooms save failed", e?.message || e || "");
+  }
+}
+
+function markRoomsDirty(reason) {
+  if (!ENABLE_ROOM_PERSIST) return;
+  _roomsDirty = true;
+  if (_roomsSaveTimer) return;
+  _roomsSaveTimer = setTimeout(() => {
+    _roomsSaveTimer = null;
+    if (_roomsDirty) saveRoomsSnapshot(reason || "dirty");
+  }, 250);
+}
+
+function restoreRoomsFromDisk() {
+  if (!ENABLE_ROOM_PERSIST) return;
+  try {
+    const data = readJson(ROOMS_PATH, null);
+    const arr = Array.isArray(data?.rooms) ? data.rooms : [];
+    if (!arr.length) return;
+
+    const now = Date.now();
+    let restored = 0;
+    for (const snap of arr) {
+      const rid = normRoomId(snap?.roomId);
+      if (!rid) continue;
+      const updatedAt = Number(snap?.updatedAt || 0) || 0;
+      if (updatedAt && now - updatedAt > ROOM_PERSIST_MAX_AGE_MS) continue;
+
+      const r = newRoom(rid);
+      r.phase = String(snap?.phase || "LOBBY");
+      r.handNo = typeof snap?.handNo === "number" ? snap.handNo : 0;
+      r.dealerSeat = typeof snap?.dealerSeat === "number" ? snap.dealerSeat : 0;
+      r.updatedAt = updatedAt || now;
+
+      r.userPts = snap?.userPts && typeof snap.userPts === "object" ? snap.userPts : Object.create(null);
+      r.userPtsOrder = Array.isArray(snap?.userPtsOrder) ? snap.userPtsOrder : [];
+
+      // players (svarīgi: connected/socketId vienmēr false/null pēc restarta)
+      const pls = Array.isArray(snap?.players) ? snap.players : [];
+      for (let i = 0; i < 3; i++) {
+        const p = pls[i] || { seat: i };
+        const username = p?.username ? safeUsername(p.username) : null;
+        r.players[i] = {
+          seat: i,
+          username,
+          avatarUrl: username ? String(p.avatarUrl || "") : "",
+          ready: !!p.ready && !!username,
+          connected: false,
+          socketId: null,
+          seed: username ? String(p.seed || "") : null,
+          matchPts:
+            typeof p.matchPts === "number" && Number.isFinite(p.matchPts) ? p.matchPts : START_PTS,
+        };
+      }
+
+      r.fairness = snap?.fairness && typeof snap.fairness === "object" ? snap.fairness : null;
+      r.bids = Array.isArray(snap?.bids) ? snap.bids : [];
+      r.bidTurnSeat = typeof snap?.bidTurnSeat === "number" ? snap.bidTurnSeat : nextSeatCW(r.dealerSeat);
+      r.contract = snap?.contract ?? null;
+      r.bigSeat = typeof snap?.bigSeat === "number" ? snap.bigSeat : null;
+
+      r.deck = Array.isArray(snap?.deck) ? snap.deck : null;
+      r.hands = Array.isArray(snap?.hands) ? snap.hands : [[], [], []];
+      r.talon = Array.isArray(snap?.talon) ? snap.talon : [];
+      r.discard = Array.isArray(snap?.discard) ? snap.discard : [];
+      r.taken = Array.isArray(snap?.taken) ? snap.taken : [[], [], []];
+
+      r.leaderSeat = typeof snap?.leaderSeat === "number" ? snap.leaderSeat : null;
+      r.turnSeat = typeof snap?.turnSeat === "number" ? snap.turnSeat : null;
+      r.turnEndsAt = Number(snap?.turnEndsAt || 0) || 0;
+      r.trickPlays = Array.isArray(snap?.trickPlays) ? snap.trickPlays : [];
+      r.trickPauseUntil = Number(snap?.trickPauseUntil || 0) || 0;
+      r.trickTimer = null;
+
+      r.galdsTrickNo = Number(snap?.galdsTrickNo || 0) || 0;
+      r.galdsTalonIndex = Number(snap?.galdsTalonIndex || 0) || 0;
+
+      r.lastResult = snap?.lastResult || null;
+
+      // autoTimer/turnTimer netiek serializēti
+      r.autoTimer = null;
+      r.autoDelayOverrideMs = null;
+      r.turnTimer = null;
+
+      rooms.set(rid, r);
+      restored += 1;
+    }
+
+    if (restored) logLine("info", `rooms restored (${restored})`, ROOMS_PATH);
+  } catch (e) {
+    logLine("error", "rooms restore failed", e?.message || e || "");
+  }
 }
 
 function resetHandState(room) {
@@ -997,7 +1609,17 @@ function resetHandState(room) {
 
   room.leaderSeat = null;
   room.turnSeat = null;
+  room.turnEndsAt = 0;
+  if (room.turnTimer) {
+    try { clearTimeout(room.turnTimer); } catch {}
+    room.turnTimer = null;
+  }
   room.trickPlays = [];
+  room.trickPauseUntil = 0;
+  if (room.trickTimer) {
+    try { clearTimeout(room.trickTimer); } catch {}
+    room.trickTimer = null;
+  }
 
   room.galdsTrickNo = 0;
   room.galdsTalonIndex = 0;
@@ -1045,12 +1667,14 @@ function startNewHand(room) {
 
   const didDeal = dealIfReady(room);
   emitRoom(room, { note: didDeal ? "NEW_HAND_DEALT" : "NEW_HAND_WAIT_SEEDS" });
+  scheduleTurnTimer(room);
 }
 
 function preparePlayPhase(room) {
   room.phase = "PLAY";
   room.trickPlays = [];
   room.turnSeat = room.leaderSeat;
+  scheduleTurnTimer(room);
 }
 
 function applyPayEachSigned(room, bigSeat, payEachSigned) {
@@ -1067,6 +1691,29 @@ function finishHandToLobby(room, lastResult, extraNote) {
     if (p.username) p.ready = true;
   }
 
+  // AFK: ja spēles laikā sasniedza auto-limit, pēc partijas atbrīvojam vietu
+  try {
+    for (let s = 0; s < 3; s++) {
+      const p = room.players[s];
+      if (!p?.username) continue;
+      if (p?.afk?.kickAfterHand) {
+        const uname = p.username;
+        if (uname) setUserPts(room, uname, p.matchPts);
+        room.players[s] = {
+          seat: s,
+          username: null,
+          avatarUrl: "",
+          ready: false,
+          connected: false,
+          socketId: null,
+          seed: null,
+          matchPts: START_PTS,
+          afk: null,
+        };
+      }
+    }
+  } catch {}
+
   room.autoDelayOverrideMs = AUTO_NEXT_HAND_MS;
 
   room.dealerSeat = nextSeatCW(room.dealerSeat);
@@ -1076,7 +1723,7 @@ function finishHandToLobby(room, lastResult, extraNote) {
 }
 
 /* ============================
-   SCORE — TAKE/ZOLE (Bugats tabula)
+   SCORE — TAKE/ZOLE (klasiskā tabula)
    ============================ */
 function scoreTakeOrZole(room) {
   const snap = snapshotSeatPts(room);
@@ -1098,36 +1745,15 @@ function scoreTakeOrZole(room) {
   const oppEyes = totalEyes - bigEyes;
   const oppTricks = 8 - bigTricks;
 
-  let payEachSigned = 0;
-  let bigWins = false;
-  let status = "";
+  const calc = computePayEachClassic(contract, bigEyes, bigTricks) || {
+    bigWins: false,
+    payEachSigned: 0,
+    status: "—",
+  };
 
-  if (contract === CONTRACT_TAKE) {
-    bigWins = bigEyes >= 61;
-
-    if (bigWins) {
-      if (bigTricks === 8) { payEachSigned = +6; status = "UZVAR BEZTUKŠĀ"; }
-      else if (bigEyes >= 91) { payEachSigned = +4; status = "UZVAR JAŅOS"; }
-      else { payEachSigned = +2; status = "UZVAR"; }
-    } else {
-      if (bigTricks === 0) { payEachSigned = -8; status = "ZAUDĒ BEZTUKŠĀ"; }
-      else if (bigEyes <= 30) { payEachSigned = -6; status = "ZAUDĒ JAŅOS"; }
-      else { payEachSigned = -4; status = "ZAUDĒ"; }
-    }
-  }
-
-  if (contract === CONTRACT_ZOLE) {
-    bigWins = bigEyes >= 61;
-
-    if (!bigWins) {
-      payEachSigned = -12;
-      status = "ZAUDĒ";
-    } else {
-      if (bigTricks === 8) { payEachSigned = +14; status = "UZVAR BEZTUKŠĀ"; }
-      else if (bigEyes >= 91) { payEachSigned = +12; status = "UZVAR JAŅOS"; }
-      else { payEachSigned = +10; status = "UZVAR"; }
-    }
-  }
+  const payEachSigned = calc.payEachSigned;
+  const bigWins = !!calc.bigWins;
+  const status = String(calc.status || "");
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 
@@ -1164,10 +1790,10 @@ function scoreMaza(room, reason) {
 
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
-  const bigWins = bigTricks === 0;
-
-  const payEachSigned = bigWins ? +12 : -12;
-  const status = bigWins ? "UZVAR" : "ZAUDĒ";
+  const calc = computeMazaPayEach(bigTricks);
+  const bigWins = !!calc.bigWins;
+  const payEachSigned = calc.payEachSigned;
+  const status = String(calc.status || (bigWins ? "UZVAR" : "ZAUDĒ"));
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 
@@ -1199,35 +1825,11 @@ function scoreGalds(room) {
   const tricks = room.taken.map((t) => trickCount(t));
   const eyes = room.taken.map((t) => sumEyes(t));
 
-  const maxTr = Math.max(...tricks);
-  let losers = [0, 1, 2].filter((s) => tricks[s] === maxTr);
-
-  if (losers.length > 1) {
-    const maxEyesAmong = Math.max(...losers.map((s) => eyes[s]));
-    losers = losers.filter((s) => eyes[s] === maxEyesAmong);
-  }
-
-  const deltas = [0, 0, 0];
-  let loserSeats = [];
-  let note = "";
-
-  if (losers.length === 1) {
-    const L = losers[0];
-    deltas[L] = -2 * GALDS_PAY;
-    for (let s = 0; s < 3; s++) if (s !== L) deltas[s] = +GALDS_PAY;
-    loserSeats = [L];
-    note = `GALDS: loser=seat${L}`;
-  } else if (losers.length === 2) {
-    const [a, b] = losers;
-    deltas[a] = -GALDS_PAY;
-    deltas[b] = -GALDS_PAY;
-    const w = [0, 1, 2].find((s) => s !== a && s !== b);
-    deltas[w] = +2 * GALDS_PAY;
-    loserSeats = [a, b];
-    note = `GALDS: split losers seat${a}&seat${b}`;
-  } else {
-    note = `GALDS: all equal`;
-  }
+  const calc = computeGaldinsDeltas(tricks, eyes, GALDS_PAY);
+  const deltas = calc?.deltas || [0, 0, 0];
+  const loserSeats = typeof calc?.loserSeat === "number" ? [calc.loserSeat] : [];
+  const note =
+    loserSeats.length === 1 ? `GALDS: loser=seat${loserSeats[0]}` : `GALDS: all equal`;
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
   syncAllUserPts(room);
@@ -1263,6 +1865,7 @@ function scoreGalds(room) {
 function computeLegalForSeat(room, seat) {
   if (room.phase !== "PLAY") return [];
   if (room.turnSeat !== seat) return [];
+  if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) return [];
   const hand = room.hands[seat] || [];
   if (room.trickPlays.length === 0) return hand.slice();
 
@@ -1275,6 +1878,222 @@ function computeLegalForSeat(room, seat) {
 
   if (follow === "TRUMP") return hand.filter(isTrumpStd);
   return hand.filter((c) => !isTrumpStd(c) && c.s === follow);
+}
+
+function clearTurnTimer(room) {
+  room.turnEndsAt = 0;
+  if (room.turnTimer) {
+    try { clearTimeout(room.turnTimer); } catch {}
+    room.turnTimer = null;
+  }
+}
+
+function pickWeakestCard(cards) {
+  const arr = (cards || []).slice();
+  if (!arr.length) return null;
+  arr.sort((a, b) => {
+    const at = isTrumpStd(a);
+    const bt = isTrumpStd(b);
+    if (at !== bt) return at ? 1 : -1; // netrumpji (parasti) vājāki par trumpjiem
+    if (at && bt) return (trumpStrengthStd(b) ?? 999) - (trumpStrengthStd(a) ?? 999); // lielāks idx = vājāks
+    // netrumpji: mazāks strength = vājāks
+    return (nonTrumpStrengthStd(a) ?? 0) - (nonTrumpStrengthStd(b) ?? 0);
+  });
+  return arr[0] || null;
+}
+
+function autoBid(room, seat) {
+  if (room.phase !== "BIDDING") return false;
+  if (room.turnSeat !== seat) return false;
+
+  if (!room.deck) {
+    const did = dealIfReady(room);
+    if (!did) return false;
+  }
+
+  touchAfk(room, seat, "BID");
+
+  // timeout = GARĀM
+  room.bids.push({ seat, bid: "GARĀM" });
+  room.turnSeat = nextSeatCW(room.turnSeat);
+
+  const passCount = room.bids.filter((b) => b.bid === "GARĀM").length;
+  if (passCount >= 3) {
+    room.contract = CONTRACT_GALDS;
+    room.bigSeat = null;
+
+    room.phase = "PLAY";
+    room.trickPlays = [];
+    room.turnSeat = room.leaderSeat;
+
+    room.galdsTrickNo = 0;
+    room.galdsTalonIndex = 0;
+
+    emitRoom(room, { note: "ALL_GARAM_GALDS" });
+    scheduleTurnTimer(room);
+    return true;
+  }
+
+  emitRoom(room, { note: "GARAM_TIMEOUT" });
+  scheduleTurnTimer(room);
+  return true;
+}
+
+function autoDiscard(room) {
+  if (room.phase !== "DISCARD") return false;
+  const seat = room.bigSeat;
+  if (typeof seat !== "number") return false;
+  if (room.contract !== CONTRACT_TAKE) return false;
+
+  touchAfk(room, seat, "DISCARD");
+
+  const hand = room.hands[seat] || [];
+  if (hand.length < 2) return false;
+
+  const first = pickWeakestCard(hand);
+  if (!first) return false;
+  const tmp = hand.slice();
+  // noņemam vienu kopiju
+  const i1 = tmp.findIndex((c) => sameCard(c, first));
+  if (i1 !== -1) tmp.splice(i1, 1);
+  const second = pickWeakestCard(tmp);
+  if (!second) return false;
+
+  // izņemam no īstās rokas
+  const picked = [];
+  for (const pick of [first, second]) {
+    const idx = hand.findIndex((h) => sameCard(h, pick));
+    if (idx !== -1) picked.push(hand.splice(idx, 1)[0]);
+  }
+  if (picked.length !== 2) return false;
+
+  room.discard = picked;
+  preparePlayPhase(room);
+  emitRoom(room, { note: "DISCARD_TIMEOUT_AUTO" });
+  return true;
+}
+
+function finalizeTrickIfComplete(room) {
+  try {
+    if (!rooms.has(room.roomId)) return false;
+    if (room.phase !== "PLAY") return false;
+    if (!Array.isArray(room.trickPlays) || room.trickPlays.length !== 3) return false;
+
+    room.trickPauseUntil = 0;
+    room.trickTimer = null;
+
+    const winnerSeat = pickTrickWinner(room, room.trickPlays);
+    for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
+
+    room.trickPlays = [];
+    room.leaderSeat = winnerSeat;
+    room.turnSeat = winnerSeat;
+
+    if (room.contract === CONTRACT_GALDS) {
+      room.galdsTrickNo += 1;
+      if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
+        room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
+        room.galdsTalonIndex += 1;
+      }
+    }
+
+    emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
+    scheduleTurnTimer(room);
+
+    if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
+      scoreMaza(room, "TOOK_TRICK");
+      return true;
+    }
+
+    const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
+    if (!allHandsEmpty) return true;
+
+    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) scoreTakeOrZole(room);
+    else if (room.contract === CONTRACT_MAZA) scoreMaza(room, "END");
+    else if (room.contract === CONTRACT_GALDS) scoreGalds(room);
+    else scoreTakeOrZole(room);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function autoPlay(room, seat) {
+  if (room.phase !== "PLAY") return false;
+  if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) return false;
+  if (room.turnSeat !== seat) return false;
+
+  touchAfk(room, seat, "PLAY");
+
+  const legal = computeLegalForSeat(room, seat);
+  const c = pickWeakestCard(legal);
+  if (!c) return false;
+
+  const hand = room.hands[seat] || [];
+  const idx = hand.findIndex((h) => sameCard(h, c));
+  if (idx === -1) return false;
+
+  const played = hand.splice(idx, 1)[0];
+  room.trickPlays.push({ seat, card: played });
+
+  if (room.trickPlays.length < 3) {
+    room.turnSeat = nextSeatCW(room.turnSeat);
+    emitRoom(room, { note: "PLAY_TIMEOUT_AUTO" });
+    scheduleTurnTimer(room);
+    return true;
+  }
+
+  // 3. kārts: pauze, tad tikai izrēķinam uzvarētāju
+  clearTurnTimer(room);
+  room.trickPauseUntil = Date.now() + TRICK_PAUSE_MS;
+  emitRoom(room, { note: "TRICK_COMPLETE" });
+
+  if (room.trickTimer) {
+    try { clearTimeout(room.trickTimer); } catch {}
+    room.trickTimer = null;
+  }
+
+  room.trickTimer = setTimeout(() => {
+    finalizeTrickIfComplete(room);
+  }, TRICK_PAUSE_MS);
+
+  return true;
+}
+
+function scheduleTurnTimer(room, endsAtOverride) {
+  clearTurnTimer(room);
+  if (!room) return;
+
+  const now = Date.now();
+  if (room.phase === "PLAY" && room.trickPauseUntil && now < room.trickPauseUntil) return;
+
+  let seat = null;
+  if (room.phase === "PLAY" || room.phase === "BIDDING") seat = room.turnSeat;
+  else if (room.phase === "DISCARD") seat = room.bigSeat;
+  else return;
+  if (typeof seat !== "number") return;
+
+  const endsAt =
+    typeof endsAtOverride === "number" && Number.isFinite(endsAtOverride) && endsAtOverride > now
+      ? Math.min(endsAtOverride, now + TURN_MS) // nelaižam bezgalīgi ilgi
+      : now + TURN_MS;
+
+  room.turnEndsAt = endsAt;
+  const expected = room.turnEndsAt;
+  const delay = Math.max(0, expected - now);
+
+  room.turnTimer = setTimeout(() => {
+    const r = rooms.get(room.roomId);
+    if (!r) return;
+    if (r.turnEndsAt !== expected) return; // jau pārbīdīts
+
+    try {
+      if (r.phase === "BIDDING") autoBid(r, seat);
+      else if (r.phase === "DISCARD") autoDiscard(r);
+      else if (r.phase === "PLAY") autoPlay(r, seat);
+    } catch {}
+  }, delay + 35);
 }
 
 function publicPlayers(room) {
@@ -1316,13 +2135,13 @@ function sanitizeStateForSeat(room, seat) {
     rules: {
       trumpsEnabled: !!trumps,
       galdsPay: GALDS_PAY,
-      galdsLoserPts: -(GALDS_PAY * 2),
-      galdsSplitLoserPts: -GALDS_PAY,
+      galdsLoserPts: -(GALDS_PAY * 3),
       startPts: START_PTS,
     },
 
     leaderSeat: room.leaderSeat,
     turnSeat: room.turnSeat,
+    turnEndsAt: room.turnEndsAt || 0,
     trickPlays: room.trickPlays,
 
     mySeat: seat,
@@ -1345,6 +2164,7 @@ function sanitizeStateForSeat(room, seat) {
 
 function emitRoom(room, extra) {
   room.updatedAt = Date.now();
+  markRoomsDirty(extra?.note || "emitRoom");
 
   for (const p of room.players) {
     if (!p.socketId) continue;
@@ -1363,6 +2183,31 @@ function emitRoom(room, extra) {
 io.on("connection", (socket) => {
   socket.emit("server:hello", { ok: true, ts: Date.now() });
 
+  function authFromSocket() {
+    try {
+      // Atbalstām gan: io({ auth: { token } }), gan cookie (ja tas tiek sūtīts handshake laikā)
+      const token =
+        String(socket?.handshake?.auth?.token || "").trim() ||
+        String(socket?.handshake?.headers?.authorization || "")
+          .trim()
+          .match(/^Bearer\s+(.+)$/i)?.[1]
+          ?.trim() ||
+        String(parseCookies(socket?.handshake?.headers?.cookie)?.[COOKIE_NAME] || "").trim();
+
+      if (!token) return { ok: false };
+      const v = verifyToken(token);
+      if (!v.ok) return { ok: false };
+
+      const username = safeUsername(v.payload?.username);
+      const avatarUrl = safeAvatarUrl(v.payload?.avatarUrl);
+
+      if (!username) return { ok: false };
+      return { ok: true, username, avatarUrl };
+    } catch {
+      return { ok: false };
+    }
+  }
+
   socket.on("lobby:join", (_payload, ack) => {
     socket.join("lobby");
     try { ack?.({ ok: true }); } catch {}
@@ -1379,9 +2224,53 @@ io.on("connection", (socket) => {
   socket.on("leaderboard:top10", (a, b) => {
     const ack = typeof a === "function" ? a : (typeof b === "function" ? b : null);
     try {
-      const top10 = lbTop10();
-      ack && ack({ ok: true, top10, top: top10, ts: Date.now() });
+      if (!rlConsume(rlKey(socket, "leaderboard:top10"), 10, 10_000))
+        return ack && ack({ ok: false, error: "RATE_LIMIT" });
+      const payload = typeof a === "object" && a && typeof a !== "function" ? a : {};
+      const scopeRaw = String(payload?.scope || "all").toLowerCase();
+      const scope = scopeRaw === "week" || scopeRaw === "month" ? scopeRaw : "all";
+      const top10 = lbTop10(scope);
+      ack &&
+        ack({
+          ok: true,
+          scope,
+          weekKey: isoWeekKey(),
+          monthKey: monthKey(),
+          top10,
+          top: top10,
+          ts: Date.now(),
+        });
     } catch {}
+  });
+
+  // Report user (minimum moderation)
+  socket.on("moderation:report", (payload, ack) => {
+    try {
+      if (!rlConsume(rlKey(socket, "moderation:report"), 4, 60_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
+      const roomId = socket.data.roomId;
+      const seat = socket.data.seat;
+      const room = roomId ? rooms.get(roomId) : null;
+      if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
+
+      const reporter = safeUsername(room.players?.[seat]?.username || "");
+      const target = safeUsername(payload?.target || "");
+      const reason = String(payload?.reason || "").trim().slice(0, 300);
+      if (!reporter || !target) return ack?.({ ok: false, error: "BAD_INPUT" });
+
+      appendJsonl(REPORTS_PATH, {
+        ts: Date.now(),
+        reporter,
+        target,
+        roomId: room.roomId,
+        reason,
+        via: "socket",
+        ip: ipFromSocket(socket),
+      });
+      ack?.({ ok: true });
+    } catch {
+      ack?.({ ok: false, error: "REPORT_FAILED" });
+    }
   });
 
   function pickSeat(room, username) {
@@ -1397,11 +2286,17 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      if (!rlConsume(rlKey(socket, "room:create"), 6, 10_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
+      const authed = authFromSocket();
+      const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
+      const avatarUrl =
+        safeAvatarUrl(payload?.avatarUrl) || (authed.ok ? authed.avatarUrl : "");
       const clientSeed = String(payload?.seed || "").trim();
 
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+      if (isBannedUsername(username) || isBannedIp(ipFromSocket(socket)))
+        return ack?.({ ok: false, error: "BANNED" });
 
       const roomId = normRoomId(payload?.roomId) || randomRoomId();
       const room = getOrCreateRoom(roomId);
@@ -1441,13 +2336,19 @@ io.on("connection", (socket) => {
 
   socket.on("room:join", (payload, ack) => {
     try {
-      const username = safeUsername(payload?.username);
-      const avatarUrl = safeAvatarUrl(payload?.avatarUrl);
+      if (!rlConsume(rlKey(socket, "room:join"), 8, 10_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
+      const authed = authFromSocket();
+      const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
+      const avatarUrl =
+        safeAvatarUrl(payload?.avatarUrl) || (authed.ok ? authed.avatarUrl : "");
       const clientSeed = String(payload?.seed || "").trim();
 
       const roomId = normRoomId(payload?.roomId);
       if (!roomId) return ack?.({ ok: false, error: "ROOM_REQUIRED" });
       if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+      if (isBannedUsername(username) || isBannedIp(ipFromSocket(socket)))
+        return ack?.({ ok: false, error: "BANNED" });
 
       const room = rooms.get(roomId);
       if (!room) return ack?.({ ok: false, error: "ROOM_NOT_FOUND" });
@@ -1485,7 +2386,81 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Ātrā spēle: iemet pirmajā brīvajā istabā (vai izveido jaunu)
+  socket.on("room:quick", (payload, ack) => {
+    try {
+      if (!rlConsume(rlKey(socket, "room:quick"), 8, 10_000))
+        return ack?.({ ok: false, error: "RATE_LIMIT" });
+      const authed = authFromSocket();
+      const username = safeUsername(payload?.username) || (authed.ok ? authed.username : "");
+      const avatarUrl =
+        safeAvatarUrl(payload?.avatarUrl) || (authed.ok ? authed.avatarUrl : "");
+      const clientSeed = String(payload?.seed || "").trim();
+
+      if (!username) return ack?.({ ok: false, error: "NICK_REQUIRED" });
+      if (isBannedUsername(username) || isBannedIp(ipFromSocket(socket)))
+        return ack?.({ ok: false, error: "BANNED" });
+
+      // atrodam pirmo “LOBBY” istabu ar brīvu vietu; prioritāte — kur jau ir 2 spēlētāji (ātrāk saliekas 3)
+      const candidates = [];
+      for (const r of rooms.values()) {
+        if (!r || !Array.isArray(r.players)) continue;
+        if (r.phase !== "LOBBY") continue;
+        const open = r.players.filter((p) => !p.username).length;
+        const occ = r.players.filter((p) => !!p.username).length;
+        if (open <= 0) continue;
+        candidates.push({ room: r, occ });
+      }
+      candidates.sort((a, b) => (b.occ || 0) - (a.occ || 0));
+
+      let room = null;
+      let seat = -1;
+      for (const c of candidates) {
+        const r = c.room;
+        const s = pickSeat(r, username);
+        if (s >= 0) {
+          room = r;
+          seat = s;
+          break;
+        }
+      }
+
+      if (!room) {
+        const roomId = randomRoomId();
+        room = getOrCreateRoom(roomId);
+        seat = pickSeat(room, username);
+        if (seat < 0) return ack?.({ ok: false, error: "ROOM_FULL" });
+      }
+
+      const wasRejoin = room.players[seat].username === username && !room.players[seat].connected;
+      if (!wasRejoin) room.players[seat].matchPts = getUserPts(room, username);
+
+      room.players[seat].username = username;
+      room.players[seat].avatarUrl = avatarUrl || room.players[seat].avatarUrl || "";
+      room.players[seat].ready = true;
+      room.players[seat].connected = true;
+      room.players[seat].socketId = socket.id;
+      room.players[seat].seed =
+        clientSeed || room.players[seat].seed || crypto.randomBytes(8).toString("hex");
+
+      setUserPts(room, username, room.players[seat].matchPts);
+      const t = lbTouch(username, room.players[seat].avatarUrl, room.players[seat].matchPts);
+      if (t.changed) lbSave();
+
+      socket.join(room.roomId);
+      socket.data.roomId = room.roomId;
+      socket.data.seat = seat;
+
+      ack?.({ ok: true, roomId: room.roomId, seat });
+      emitRoom(room, { note: "JOIN" });
+    } catch {
+      ack?.({ ok: false, error: "QUICK_FAILED" });
+    }
+  });
+
   socket.on("room:leave", (_payload, ack) => {
+    if (!rlConsume(rlKey(socket, "room:leave"), 6, 10_000))
+      return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -1498,26 +2473,24 @@ io.on("connection", (socket) => {
 
       const leavingMidHand = room.phase !== "LOBBY";
 
-      room.players[seat] = {
-        seat,
-        username: null,
-        avatarUrl: "",
-        ready: false,
-        connected: false,
-        socketId: null,
-        seed: null,
-        matchPts: START_PTS,
-      };
-
+      // Ja kāds netīšām “iziet” (vai pārslēdz lapu), tas netraucē citiem:
+      // mid-hand mēs NEANULĒJAM partiju, vienkārši atvienojam spēlētāju (viņš var pārpievienoties ar to pašu niku).
       if (leavingMidHand) {
-        room.lastResult = {
-          ts: Date.now(),
-          handNo: room.handNo,
-          contract: room.contract || null,
-          note: "ABORTED_PLAYER_LEFT",
+        room.players[seat].connected = false;
+        room.players[seat].socketId = null;
+        room.players[seat].ready = false;
+        scheduleTurnTimer(room);
+      } else {
+        room.players[seat] = {
+          seat,
+          username: null,
+          avatarUrl: "",
+          ready: false,
+          connected: false,
+          socketId: null,
+          seed: null,
+          matchPts: START_PTS,
         };
-        room.phase = "LOBBY";
-        resetHandState(room);
       }
 
       if (roomIsEmpty(room)) {
@@ -1572,6 +2545,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("zole:bid", (payload, ack) => {
+    if (!rlConsume(rlKey(socket, "zole:bid"), 12, 10_000)) return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -1596,10 +2570,15 @@ io.on("connection", (socket) => {
     const allowed = new Set(["GARĀM", "ŅEMT GALDU", "ZOLE", "MAZĀ"]);
     if (!allowed.has(bidRaw)) return ack?.({ ok: false, error: "BAD_BID" });
 
+    try {
+      if (room.players?.[seat]?.afk) room.players[seat].afk.auto = 0;
+    } catch {}
+
     room.bids.push({ seat, bid: bidRaw });
 
     if (bidRaw === "GARĀM") {
       room.turnSeat = nextSeatCW(room.turnSeat);
+      scheduleTurnTimer(room);
 
       const passCount = room.bids.filter((b) => b.bid === "GARĀM").length;
       if (passCount >= 3) {
@@ -1609,6 +2588,7 @@ io.on("connection", (socket) => {
         room.phase = "PLAY";
         room.trickPlays = [];
         room.turnSeat = room.leaderSeat;
+        scheduleTurnTimer(room);
 
         room.galdsTrickNo = 0;
         room.galdsTalonIndex = 0;
@@ -1629,6 +2609,7 @@ io.on("connection", (socket) => {
 
       room.hands[seat] = (room.hands[seat] || []).concat(room.talon);
       room.turnSeat = seat;
+      scheduleTurnTimer(room);
 
       emitRoom(room, { note: "TAKE_SELECTED" });
       return ack?.({ ok: true });
@@ -1652,6 +2633,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("zole:discard", (payload, ack) => {
+    if (!rlConsume(rlKey(socket, "zole:discard"), 10, 10_000))
+      return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
@@ -1679,6 +2662,10 @@ io.on("connection", (socket) => {
 
     room.discard = picked;
 
+    try {
+      if (room.players?.[seat]?.afk) room.players[seat].afk.auto = 0;
+    } catch {}
+
     ack?.({ ok: true });
 
     preparePlayPhase(room);
@@ -1686,12 +2673,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("zole:play", (payload, ack) => {
+    if (!rlConsume(rlKey(socket, "zole:play"), 18, 10_000)) return ack?.({ ok: false, error: "RATE_LIMIT" });
     const roomId = socket.data.roomId;
     const seat = socket.data.seat;
     const room = roomId ? rooms.get(roomId) : null;
     if (!room || typeof seat !== "number") return ack?.({ ok: false, error: "NOT_IN_ROOM" });
 
     if (room.phase !== "PLAY") return ack?.({ ok: false, error: "NOT_PLAY" });
+    if (room.trickPauseUntil && Date.now() < room.trickPauseUntil) {
+      return ack?.({ ok: false, error: "TRICK_PAUSE" });
+    }
     if (room.turnSeat !== seat) return ack?.({ ok: false, error: "NOT_YOUR_TURN" });
 
     const c = normalizeCard(payload?.card);
@@ -1707,43 +2698,32 @@ io.on("connection", (socket) => {
     const played = hand.splice(idx, 1)[0];
     room.trickPlays.push({ seat, card: played });
 
+    try {
+      if (room.players?.[seat]?.afk) room.players[seat].afk.auto = 0;
+    } catch {}
+
     ack?.({ ok: true });
 
     if (room.trickPlays.length < 3) {
       room.turnSeat = nextSeatCW(room.turnSeat);
+      scheduleTurnTimer(room);
       emitRoom(room, { note: "PLAY" });
       return;
     }
 
-    const winnerSeat = pickTrickWinner(room, room.trickPlays);
-    for (const p of room.trickPlays) room.taken[winnerSeat].push(p.card);
+    // 3. kārts: vispirms parādām pilnu stiķi visiem, tad pēc pauzes tikai izrēķinam uzvarētāju
+    clearTurnTimer(room);
+    room.trickPauseUntil = Date.now() + TRICK_PAUSE_MS;
+    emitRoom(room, { note: "TRICK_COMPLETE" });
 
-    room.trickPlays = [];
-    room.leaderSeat = winnerSeat;
-    room.turnSeat = winnerSeat;
-
-    if (room.contract === CONTRACT_GALDS) {
-      room.galdsTrickNo += 1;
-      if (room.galdsTrickNo <= 2 && room.galdsTalonIndex < room.talon.length) {
-        room.taken[winnerSeat].push(room.talon[room.galdsTalonIndex]);
-        room.galdsTalonIndex += 1;
-      }
+    if (room.trickTimer) {
+      try { clearTimeout(room.trickTimer); } catch {}
+      room.trickTimer = null;
     }
 
-    emitRoom(room, { note: "TRICK_WIN", trickWinner: winnerSeat });
-
-    if (room.contract === CONTRACT_MAZA && winnerSeat === room.bigSeat) {
-      return scoreMaza(room, "TOOK_TRICK");
-    }
-
-    const allHandsEmpty = room.hands.every((h) => (h?.length || 0) === 0);
-    if (!allHandsEmpty) return;
-
-    if (room.contract === CONTRACT_TAKE || room.contract === CONTRACT_ZOLE) return scoreTakeOrZole(room);
-    if (room.contract === CONTRACT_MAZA) return scoreMaza(room, "END");
-    if (room.contract === CONTRACT_GALDS) return scoreGalds(room);
-
-    return scoreTakeOrZole(room);
+    room.trickTimer = setTimeout(() => {
+      finalizeTrickIfComplete(room);
+    }, TRICK_PAUSE_MS);
   });
 
   socket.on("disconnect", () => {
@@ -1786,19 +2766,108 @@ function normalizeCard(x) {
 // drošības: saglabā leaderboard uz exit
 process.on("SIGINT", () => {
   try { lbSave(); } catch {}
+  try { saveRoomsSnapshot("SIGINT"); } catch {}
+  try {
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  } catch {}
   process.exit(0);
 });
 process.on("SIGTERM", () => {
   try { lbSave(); } catch {}
+  try { saveRoomsSnapshot("SIGTERM"); } catch {}
+  try {
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  } catch {}
   process.exit(0);
 });
 
+process.on("uncaughtException", (e) => {
+  logLine("error", "uncaughtException", e?.stack || e?.message || e || "");
+  try { lbSave(); } catch {}
+  try { saveRoomsSnapshot("uncaughtException"); } catch {}
+});
+process.on("unhandledRejection", (e) => {
+  logLine("error", "unhandledRejection", e?.stack || e?.message || e || "");
+});
+
+function resumeRoomsRuntime() {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    if (!room) continue;
+
+    // ja kaut kas nav saskanīgs, mēģinam ielikt drošus defaultus
+    if (room.phase === "BIDDING" && typeof room.turnSeat !== "number")
+      room.turnSeat = typeof room.bidTurnSeat === "number" ? room.bidTurnSeat : nextSeatCW(room.dealerSeat);
+    if (room.phase === "PLAY" && typeof room.turnSeat !== "number" && typeof room.leaderSeat === "number")
+      room.turnSeat = room.leaderSeat;
+
+    // atjaunojam “pending trick” pēc restarta
+    if (room.phase === "PLAY" && Array.isArray(room.trickPlays) && room.trickPlays.length === 3) {
+      const leftMs = Math.max(0, Number(room.trickPauseUntil || 0) - now);
+      try { if (room.trickTimer) clearTimeout(room.trickTimer); } catch {}
+      room.trickTimer = setTimeout(() => {
+        finalizeTrickIfComplete(room);
+      }, leftMs + 25);
+      continue; // turn timer tikai pēc stiķa
+    }
+
+    // turn timer
+    if (room.phase === "PLAY" || room.phase === "BIDDING" || room.phase === "DISCARD") {
+      const endsAt = Number(room.turnEndsAt || 0) || 0;
+      scheduleTurnTimer(room, endsAt > now ? endsAt : undefined);
+    }
+  }
+}
+
+// Startup: restore rooms + schedule persist/backup
+if (ENABLE_ROOM_PERSIST) {
+  try {
+    restoreRoomsFromDisk();
+    resumeRoomsRuntime();
+  } catch {}
+  try {
+    setInterval(() => {
+      if (_roomsDirty) saveRoomsSnapshot("interval");
+    }, ROOM_SAVE_INTERVAL_MS);
+  } catch {}
+}
+
+try {
+  // periodiski backup (6h) + rotācija
+  setInterval(() => {
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  }, 6 * 60 * 60 * 1000);
+} catch {}
+
 server.listen(PORT, () => {
-  console.log(`[zole] listening on :${PORT}`);
-  console.log(`[zole] START_PTS=${START_PTS}`);
-  console.log(`[zole] AUTO_START_MS=${AUTO_START_MS}`);
-  console.log(`[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
-  console.log(`[zole] GALDS_PAY=${GALDS_PAY}`);
-  console.log(`[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
-  console.log(`[zole] LEADERBOARD: ${LB_PATH}`);
+  logLine("info", `[zole] listening on :${PORT}`);
+  logLine("info", `[zole] START_PTS=${START_PTS}`);
+  logLine("info", `[zole] TURN_MS=${TURN_MS}`);
+  logLine("info", `[zole] AUTO_START_MS=${AUTO_START_MS}`);
+  logLine("info", `[zole] AUTO_NEXT_HAND_MS=${AUTO_NEXT_HAND_MS}`);
+  logLine("info", `[zole] TRICK_PAUSE_MS=${TRICK_PAUSE_MS}`);
+  logLine("info", `[zole] ENABLE_ROOM_PERSIST=${ENABLE_ROOM_PERSIST ? "1" : "0"}`);
+  logLine("info", `[zole] ROOM_SAVE_INTERVAL_MS=${ROOM_SAVE_INTERVAL_MS}`);
+  logLine("info", `[zole] ROOMS_PATH=${ROOMS_PATH}`);
+  logLine("info", `[zole] USERS=${USERS_PATH}`);
+  logLine("info", `[zole] LEADERBOARD=${LB_PATH}`);
+  logLine("info", `[zole] BACKUPS=${BACKUP_DIR}`);
+  logLine("info", `[zole] CORS_ORIGINS: ${CORS_ORIGINS.length ? CORS_ORIGINS.join(", ") : "ANY"}`);
+
+  try {
+    // backup uz starta (lai ir “pirms” kopija)
+    backupFile(LB_PATH, "lb");
+    backupFile(USERS_PATH, "users");
+    backupFile(ROOMS_PATH, "rooms");
+    rotateBackups(80);
+  } catch {}
 });

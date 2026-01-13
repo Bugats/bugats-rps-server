@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="lv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>ZOLE — spēle</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+
+  <body class="zl-body zl-game">
+    <div class="zl-wrap">
+      <header class="zg-top">
+        <div class="zg-left">
+          <div class="zg-brand">ZOLE</div>
+          <div class="zg-room">ROOM: <span id="roomLabel">—</span></div>
+          <div class="zg-status" id="statusChip" aria-label="Spēles statuss"></div>
+          <div class="zg-online" id="onlineChip" aria-label="Spēlētāji online"></div>
+        </div>
+
+        <div class="zg-right">
+          <div class="zg-conn">
+            <span id="connDot" class="zl-dot zl-dot-off"></span>
+            <span id="connLabel">Nav savienojuma</span>
+          </div>
+
+          <button
+            id="btnReadyToggle"
+            class="zg-ready"
+            title="READY (sāk jaunu partiju, kad visi 3 ir READY)"
+          >
+            READY: OFF
+          </button>
+
+          <button id="btnPtsToggle" class="zg-btn" title="Rādīt/slēpt punktus">
+            PTS
+          </button>
+
+          <button id="btnHelp" class="zg-btn" title="Palīdzība / noteikumi">?</button>
+
+          <button id="btnFeedback" class="zg-btn" title="Nosūtīt atsauksmi">FB</button>
+
+          <button id="btnFullscreen" class="zg-btn" title="Pilnekrāna režīms">
+            FULL
+          </button>
+
+          <button id="btnLeaveToLobby" class="zg-leave">Iziet uz Lobby</button>
+        </div>
+      </header>
+
+      <main class="zg-main">
+        <section class="zg-felt" id="felt">
+          <!-- Rezultāta toast -->
+          <div id="resultToast" class="zg-toast" style="display: none"></div>
+
+          <!-- Īsie sistēmas paziņojumi (taimeris, auto-gājiens, u.c.) -->
+          <div id="hudToast" class="zg-hudtoast" style="display: none"></div>
+
+          <!-- Spēlētāji (pretinieki augšā) -->
+          <div class="zg-seat zg-top-left" id="seatLeft"></div>
+          <div class="zg-seat zg-top-right" id="seatRight"></div>
+
+          <!-- Stiķis (kur likt kārtis uz galda) -->
+          <div class="zg-trick" id="trick">
+            <div class="zg-trick-cards">
+              <div class="zg-slot zg-slot-left" id="slotLeft"></div>
+              <div class="zg-slot zg-slot-right" id="slotRight"></div>
+              <div class="zg-slot zg-slot-bottom" id="slotBottom"></div>
+            </div>
+          </div>
+
+          <!-- 2 galda kārtis (talons) -->
+          <div class="zg-talon" id="talonPile" aria-label="Galda kārtis">
+            <div class="zg-talon-label">TALON</div>
+            <div class="zg-talon-cards">
+              <div class="zg-cardback"></div>
+              <div class="zg-cardback"></div>
+            </div>
+          </div>
+
+          <!-- TU dock -->
+          <div id="zgMeDock">
+            <div class="zg-seat zg-bottom" id="seatBottom"></div>
+          </div>
+
+          <!-- Centrālais overlay -->
+          <div class="zg-overlay" id="overlay" style="display: none">
+            <div class="zg-ov-title" id="overlayTitle">—</div>
+
+            <div class="zg-ov-bids" id="bidPanel">
+              <button class="zg-bid" data-bid="PASS">GARĀM</button>
+              <button class="zg-bid" data-bid="TAKE">ŅEMT GALDU</button>
+              <button class="zg-bid" data-bid="ZOLE">ZOLE</button>
+              <button class="zg-bid" data-bid="MAZA">MAZĀ ZOLE</button>
+            </div>
+
+            <div class="zg-ov-discard" id="discardPanel" style="display: none">
+              <div class="zg-small">Izvēlies 2 kārtis un spied “Norakt”.</div>
+              <div class="zg-row">
+                <button id="btnConfirmDiscard" class="zg-warn" disabled>
+                  Norakt (0/2)
+                </button>
+                <button id="btnClearDiscard" class="zg-btn">Notīrīt</button>
+              </div>
+            </div>
+
+            <div class="zg-ov-note" id="overlayNote">—</div>
+          </div>
+
+          <!-- Palīdzība / Noteikumi -->
+          <div class="zg-help" id="helpModal" style="display: none" aria-hidden="true">
+            <div class="zg-help-card" role="dialog" aria-modal="true" aria-label="Zoles palīdzība">
+              <div class="zg-help-top">
+                <div class="zg-help-title">Zole — palīdzība</div>
+                <button class="zg-btn zg-help-close" id="btnHelpClose">Aizvērt</button>
+              </div>
+              <div class="zg-help-body" id="helpBody"></div>
+            </div>
+          </div>
+
+          <!-- Atsauksmes -->
+          <div class="zg-help" id="feedbackModal" style="display: none" aria-hidden="true">
+            <div class="zg-help-card" role="dialog" aria-modal="true" aria-label="Atsauksmes">
+              <div class="zg-help-top">
+                <div class="zg-help-title">Atsauksmes</div>
+                <button class="zg-btn zg-help-close" id="btnFeedbackClose">Aizvērt</button>
+              </div>
+              <div class="zg-help-body">
+                <div class="zg-small" style="margin-bottom:8px;">Room tiks pievienots automātiski.</div>
+                <label class="zg-small">Tips</label>
+                <select id="feedbackType" class="zg-input">
+                  <option value="bug">Bug</option>
+                  <option value="idea">Ideja</option>
+                  <option value="feedback" selected>Atsauksme</option>
+                </select>
+                <div style="height:8px;"></div>
+                <label class="zg-small">Ziņa</label>
+                <textarea id="feedbackMsg" class="zg-input" rows="5" placeholder="Apraksti īsi un konkrēti..."></textarea>
+                <div class="zg-row" style="justify-content:flex-end; margin-top:10px;">
+                  <button class="zg-btn" id="btnFeedbackSend" type="button">Sūtīt</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Roka + info uz galda -->
+          <div id="zgBottomStack">
+            <div class="zg-handinfo" id="handInfo">—</div>
+            <div class="zg-hand" id="hand"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="./game.js"></script>
+  </body>
+</html>

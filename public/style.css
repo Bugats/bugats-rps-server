@@ -1,0 +1,1748 @@
+:root{
+  --bg0:#070a14;
+  --bg1:#0b1030;
+
+  --felt1:#1f7a41;
+  --felt2:#175f33;
+
+  --panel: rgba(10, 12, 18, 0.72);
+
+  --text:#eef2ff;
+  --muted: rgba(238,242,255,0.65);
+
+  --red:#b32525;
+  --red2:#d43a3a;
+  --warn:#d2a417;
+
+  --radius:18px;
+
+  /* >>> GALDA BILDES CEĻŠ (ieliec failu /assets/ mapē) <<< */
+  --tableBgWebp: url("./assets/zole_table_bg_clean_1920x1080.webp");
+  --tableBgPng:  url("./assets/zole_table_bg_clean_1920x1080.png");
+
+  /* Android viewport helpers (JS atjauno) */
+  --vvh: 100dvh;
+  --topbar-h: 0px;
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body.zl-body, body.zg-body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: radial-gradient(1200px 700px at 30% 10%, var(--bg1), var(--bg0));
+  color:var(--text);
+}
+
+.zl-wrap{
+  width:min(1100px, 94vw);
+  margin: 0 auto;
+  padding: 18px 0 40px;
+}
+
+/* ====== LOBBY ====== */
+.zl-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:16px;
+  margin-bottom:16px;
+}
+
+.zl-brand{ display:flex; align-items:center; gap:12px; }
+.zl-logo{
+  width:44px; height:44px;
+  display:grid; place-items:center;
+  border-radius:14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
+  box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+  font-weight:900;
+}
+.zl-title{ font-weight:800; letter-spacing:0.6px; }
+.zl-sub{ color:var(--muted); font-size:12px; margin-top:2px; }
+
+.zl-conn{ display:flex; align-items:center; gap:10px; color:var(--muted); }
+.zl-dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+.zl-dot-off{ background:#4c5162; }
+.zl-dot-on{ background:#39d98a; box-shadow:0 0 18px rgba(57,217,138,0.45); }
+
+.zl-card{
+  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: 0 16px 60px rgba(0,0,0,0.35);
+}
+.zl-card h2{ margin:0 0 12px; font-size:18px; letter-spacing:0.2px; }
+
+.zl-form{ display:grid; gap:10px; }
+.zl-form label{ display:grid; gap:6px; color:var(--muted); font-size:12px; }
+.zl-form input{
+  height:44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+}
+.zl-form input:focus{ border-color: rgba(255,255,255,0.28); }
+
+/* Lobby modal (atsauksmes) */
+.zl-modal{
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+}
+.zl-modal-card{
+  width: min(760px, 96vw);
+  max-height: min(82vh, 720px);
+  overflow: auto;
+  border-radius: 16px;
+  background: rgba(16,22,35,0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 30px 120px rgba(0,0,0,0.55);
+}
+.zl-modal-top{
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px;
+  background: rgba(16,22,35,0.98);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.zl-modal-body{
+  padding: 12px 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+.zl-input{
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  padding: 8px 12px;
+  outline: none;
+}
+textarea.zl-input{
+  height: auto;
+  resize: vertical;
+  min-height: 110px;
+}
+
+.zl-row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:4px; }
+.zl-btn{
+  height:44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  cursor:pointer;
+  font-weight:800;
+}
+.zl-primary{
+  background: linear-gradient(180deg, rgba(212,58,58,0.92), rgba(179,37,37,0.92));
+  border-color: rgba(255,255,255,0.16);
+}
+.zl-hint{ color:var(--muted); font-size:12px; line-height:1.35; margin-top:6px; }
+.zl-err{
+  background: rgba(212,58,58,0.14);
+  border: 1px solid rgba(212,58,58,0.40);
+  color: rgba(255,220,220,0.95);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.zl-foot{
+  margin-top: 12px;
+  color: rgba(238,242,255,0.40);
+  font-size: 12px;
+  text-align:center;
+}
+
+/* ====== GAME ====== */
+.zg-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:12px;
+}
+.zg-left{ display:flex; align-items:baseline; gap:12px; }
+.zg-brand{ font-weight:900; letter-spacing:0.6px; }
+.zg-room{ color:var(--muted); font-size:13px; }
+
+.zg-right{ display:flex; align-items:center; gap:12px; }
+.zg-conn{ display:flex; align-items:center; gap:8px; color:var(--muted); }
+
+.zg-ready{
+  height:38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  cursor:pointer;
+  font-weight:1000;
+}
+.zg-ready:disabled{ opacity:0.5; cursor:not-allowed; }
+.zg-ready-on{
+  background: linear-gradient(180deg, rgba(57,217,138,0.95), rgba(20,170,100,0.95));
+  color: #08110c;
+  border-color: rgba(255,255,255,0.18);
+}
+
+.zg-leave{
+  height:38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  cursor:pointer;
+  font-weight:900;
+}
+
+.zg-main{ display:grid; gap:12px; }
+
+/* Mobilajā: lai saturs neiet zem fixed header */
+@media (max-width: 720px){
+  .zg-main{
+    padding-top: var(--topbar-h, 54px);
+  }
+  body.zl-game #felt.zg-felt{
+    height: calc(var(--vvh, 100dvh) - var(--topbar-h, 54px)) !important;
+  }
+}
+
+/* ====== FELT (GALDA BILDE) ====== */
+.zg-felt{
+  position: relative;
+  height: 440px;
+  border-radius: 22px;
+
+  /* Fallback, ja bilde nav atrodama */
+  background: linear-gradient(180deg, var(--felt1), var(--felt2));
+
+  /* Galda bilde + viegla vinjete, lai UI labi salasās */
+  background-image:
+    radial-gradient(1100px 520px at 50% 45%, rgba(0,0,0,0.00), rgba(0,0,0,0.35)),
+    var(--tableBgWebp);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+
+/* PNG fallback pārlūkiem, kas neņem WEBP (reti, bet droši) */
+@supports not (background-image: var(--tableBgWebp)) {
+  .zg-felt{
+    background-image:
+      radial-gradient(1100px 520px at 50% 45%, rgba(0,0,0,0.00), rgba(0,0,0,0.35)),
+      var(--tableBgPng);
+  }
+}
+
+/* Papildu mīksts “glow”/vinjete */
+.zg-felt::before{
+  content:"";
+  position:absolute; inset:0;
+  background:
+    radial-gradient(900px 500px at 50% 50%, rgba(255,255,255,0.06), rgba(0,0,0,0.18)),
+    radial-gradient(1200px 700px at 20% 20%, rgba(0,0,0,0.10), transparent 60%);
+  opacity: 0.65;
+  pointer-events:none;
+}
+
+.zg-seat{
+  position:absolute;
+  width: 260px;
+  background: rgba(10,12,18,0.66);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  padding: 10px;
+  backdrop-filter: blur(6px);
+}
+.zg-top-left{ top:14px; left:14px; }
+.zg-top-right{ top:14px; right:14px; }
+.zg-bottom{ bottom:14px; left:50%; transform: translateX(-50%); width: 320px; }
+
+.zg-seat-inner{ display:grid; gap:8px; }
+.zg-seat-topline{ display:flex; gap:10px; align-items:center; }
+.zg-avatar{
+  width:44px; height:44px;
+  border-radius: 14px;
+  overflow:hidden;
+  background: rgba(255,255,255,0.10);
+  display:grid; place-items:center;
+  font-weight:900;
+}
+.zg-avatar-img{ width:100%; height:100%; object-fit:cover; display:block; }
+.zg-avatar-empty{ color: rgba(238,242,255,0.75); }
+.zg-avatar-letter{ font-weight: 1000; }
+
+.zg-nameblock{ min-width:0; }
+.zg-name{
+  font-weight:1000;
+  letter-spacing:0.2px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.zg-pts{
+  margin-left: auto;
+  font-weight: 1000;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  color: rgba(238,242,255,0.92);
+}
+.zg-subline{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color: var(--muted);
+  font-size:12px;
+  line-height:1.1;
+  min-width:0;
+}
+.zg-badges{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+
+/* Ikonas pie vārda */
+.zg-ico{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width: 18px;
+  height: 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.18);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.zg-ico-turn{
+  border-color: rgba(210,164,23,0.55);
+  background: rgba(210,164,23,0.16);
+  color: rgba(255,236,170,0.95);
+}
+.zg-ico-big{
+  border-color: rgba(57,217,138,0.55);
+  background: rgba(57,217,138,0.16);
+  color: rgba(220,255,236,0.95);
+}
+.zg-mini{ color: var(--muted); font-size:12px; }
+
+.zg-badge{
+  display:inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.20);
+  font-weight:900;
+  font-size:11px;
+}
+.zg-badge-on{
+  background: rgba(57,217,138,0.18);
+  border-color: rgba(57,217,138,0.45);
+  color: rgba(220,255,236,0.95);
+}
+.zg-badge-warn{
+  background: rgba(212,58,58,0.16);
+  border-color: rgba(212,58,58,0.42);
+  color: rgba(255,220,220,0.96);
+}
+.zg-badge-dim{
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(238,242,255,0.86);
+}
+
+.zg-report{
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: rgba(238,242,255,0.92);
+  font-weight: 900;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.zg-backs{ display:flex; gap:4px; flex-wrap:wrap; }
+.zg-back{
+  width:14px; height:18px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(0,0,0,0.18));
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.zg-trick{
+  position:absolute;
+  left:50%;
+  top:52%;
+  transform: translate(-50%, -50%);
+  width: 520px;
+  max-width: 92%;
+  text-align:center;
+}
+.zg-trick-title{ color: rgba(255,255,255,0.92); font-weight:1000; margin-bottom:10px; }
+.zg-trick-cards{ position:relative; height: 170px; }
+.zg-slot{ position:absolute; width: 86px; height: 120px; display:grid; place-items:center; }
+.zg-slot-left{ left: 60px; top: 24px; }
+.zg-slot-right{ right: 60px; top: 24px; }
+.zg-slot-bottom{ left:50%; bottom:0; transform: translateX(-50%); }
+.zg-turn{ margin-top:10px; color: var(--muted); font-size:13px; }
+
+/* overlay */
+.zg-overlay{
+  position:absolute;
+  left:50%;
+  top:42%;
+  transform: translate(-50%, -50%);
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.50);
+}
+.zg-ov-title{
+  font-weight:1000;
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+.zg-ov-bids{ display:grid; gap:10px; margin-bottom: 10px; }
+.zg-bid{
+  height: 54px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, var(--red2), var(--red));
+  color: #fff;
+  font-weight:1000;
+  font-size: 20px;
+  cursor:pointer;
+}
+.zg-bid:disabled{ opacity: 0.45; cursor:not-allowed; }
+
+.zg-ov-discard{ display:grid; gap:10px; margin-bottom: 10px; }
+.zg-small{ color: var(--muted); font-size: 12px; line-height:1.3; }
+.zg-row{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+.zg-btn{
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  font-weight:900;
+  cursor:pointer;
+}
+.zg-warn{
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(210,164,23,0.95), rgba(170,125,12,0.95));
+  color: #101010;
+  font-weight:1000;
+  cursor:pointer;
+}
+.zg-warn:disabled{ opacity:0.5; cursor:not-allowed; }
+.zg-ov-note{ color: var(--muted); font-size:12px; margin-top: 2px; }
+
+/* Hand */
+.zg-handwrap{
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.zg-handinfo{ color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+
+.zg-hand{ display:flex; justify-content:center; align-items:flex-end; padding-bottom: 6px; }
+
+.zg-cardbtn{
+  border:none;
+  background: transparent;
+  padding:0;
+  margin-left:-16px;
+  cursor:pointer;
+  transform: translateY(0);
+  transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
+}
+.zg-cardbtn:first-child{ margin-left:0; }
+.zg-cardbtn:hover{ transform: translateY(-6px); }
+.zg-disabled{ opacity:0.35; cursor:not-allowed; }
+.zg-disabled:hover{ transform:none; }
+.zg-selected{ transform: translateY(-14px) !important; }
+.zg-legal{ filter: drop-shadow(0 0 10px rgba(255,255,255,0.20)); }
+
+/* card face */
+.zg-card{
+  width: 86px;
+  height: 120px;
+  border-radius: 6px; 
+  background: linear-gradient(180deg, #ffffff, #e9ecf4);
+  color:#12131a;
+  border: 1px solid rgba(0,0,0,0.15);
+  box-shadow: 0 12px 26px rgba(0,0,0,0.25);
+  position: relative;
+  overflow:hidden;
+}
+.zg-card::after{
+  content:"";
+  position:absolute; inset:0;
+  background: radial-gradient(250px 140px at 20% 10%, rgba(255,255,255,0.85), transparent);
+  opacity: 0.35;
+  pointer-events:none;
+}
+.zg-card-red{ color: #b01212; }
+.zg-rank{ position:absolute; top:10px; left:12px; font-weight:1000; font-size: 22px; }
+.zg-suit{ position:absolute; bottom:10px; right:12px; font-size: 26px; font-weight: 900; }
+
+/* Debug */
+.zg-debug{
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: var(--muted);
+}
+.zg-pre{
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(238,242,255,0.80);
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  padding: 10px;
+  max-height: 260px;
+  overflow:auto;
+}
+.zg-log{ max-height: 180px; }
+
+/* Rezultāta toast */
+.zg-toast{
+  position:absolute;
+  left:50%;
+  top:14px;
+  transform:translateX(-50%);
+  width:min(520px, 92%);
+  background: rgba(10, 12, 18, 0.78);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  z-index: 20;
+}
+.zg-toast b{ color:#fff; }
+
+/* Īsie sistēmas paziņojumi (taimeris/auto-gājiens) */
+.zg-hudtoast{
+  position: absolute;
+  left: 50%;
+  /* zem topbar (mobile fixed header) + safe-area */
+  top: calc(var(--topbar-h, 0px) + env(safe-area-inset-top, 0px) + 10px);
+  transform: translateX(-50%);
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.92);
+  font-size: 12px;
+  line-height: 1.2;
+  z-index: 260; /* virs galda */
+  max-width: min(92vw, 520px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+@media (max-width: 680px){
+  .zg-seat{ width: 230px; }
+  .zg-bottom{ width: 300px; }
+  .zg-slot-left{ left: 34px; }
+  .zg-slot-right{ right: 34px; }
+}
+
+/* Palīdzība / Noteikumi */
+.zg-help{
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+}
+.zg-help-card{
+  width: min(860px, 96vw);
+  max-height: min(calc(var(--vvh, 100dvh) - var(--topbar-h, 0px) - 26px), 720px);
+  overflow: auto;
+  border-radius: 16px;
+  background: rgba(16,22,35,0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 30px 120px rgba(0,0,0,0.55);
+}
+.zg-help-top{
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px;
+  background: rgba(16,22,35,0.98);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.zg-help-title{
+  font-weight: 700;
+  color: rgba(255,255,255,0.94);
+}
+.zg-help-body{
+  padding: 12px 14px 14px;
+  color: rgba(238,242,255,0.90);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.zg-help-body h3{
+  margin: 12px 0 6px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.95);
+}
+.zg-help-body ul{ margin: 6px 0 10px 18px; }
+.zg-help-body code{
+  background: rgba(255,255,255,0.08);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+/* ==========================
+   ZOLE — CARD-FIRST OVERRIDES
+   (ieliec style.css pašās beigās)
+   ========================== */
+
+/* Galds: bilde + vinjete, bez punktu režģa */
+.zg-felt{
+  background-image:
+    url("./assets/zole_table_bg_clean_1920x1080.webp"),
+    url("./assets/zole_table_bg_clean_1920x1080.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.zg-felt::before{
+  /* noņemam punktoto rakstu */
+  background-image: none !important;
+  opacity: 1;
+}
+
+.zg-felt::after{
+  content:"";
+  position:absolute; inset:0;
+  background:
+    radial-gradient(1200px 600px at 50% 55%, rgba(0,0,0,0.08), rgba(0,0,0,0.55));
+  pointer-events:none;
+}
+
+/* Seat kartes mazākas un netraucē */
+.zg-seat{
+  width: 220px;
+  padding: 8px;
+  background: rgba(0,0,0,0.16);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.zg-bottom{ width: 280px; }
+.zg-avatar{ width:38px; height:38px; border-radius: 12px; }
+.zg-name{ font-size: 14px; }
+.zg-mini{ font-size: 11px; opacity: 0.75; }
+.zg-badge{ font-size: 10px; padding: 2px 6px; }
+
+/* Teksti (meta/turn) mazāki, lai galvenais ir galds */
+#metaLine, #turnLine{
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* Kārtis uz galda (stiķis) — lielākas un skaidrākas */
+.zg-trick{ top: 52%; width: 640px; }
+.zg-trick-cards{ height: 190px; }
+.zg-slot{ width: 96px; height: 134px; }
+.zg-slot-left{ left: 90px; top: 28px; }
+.zg-slot-right{ right: 90px; top: 28px; }
+.zg-slot-bottom{ bottom: 4px; }
+
+.zg-trick .zg-card{
+  width: 96px;
+  height: 134px;
+  border-radius: 18px;
+  box-shadow: 0 16px 34px rgba(0,0,0,0.35);
+}
+.zg-trick .zg-rank{ font-size: 24px; }
+.zg-trick .zg-suit{ font-size: 30px; }
+
+/* Overlay mazāks (lai netaisa “sienu” pāri galdam) */
+.zg-overlay{
+  top: 36%;
+  width: 300px;
+  background: rgba(0,0,0,0.58);
+}
+
+/* Roka apakšā — kā “rokā turētas kārtis” */
+.zg-main{ padding-bottom: 190px; } /* atstāj vietu fiksētajai rokai */
+
+.zg-handwrap{
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  width: min(1020px, 98vw);
+  z-index: 40;
+  background: rgba(0,0,0,0.40);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+}
+
+.zg-hand{
+  position: relative;
+  height: 170px;
+  perspective: 1000px;
+  transform-style: preserve-3d;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 10px;
+}
+
+/* Fan / pārklāšanās — vadās no JS CSS mainīgajiem: --ha, --hx */
+.zg-cardbtn{
+  margin-left: -52px;            /* “maisa” kārtis */
+  transform-origin: 50% 160px;   /* rotācija no “rokas” */
+  transform:
+    translateX(var(--hx, 0px))
+    rotate(var(--ha, 0deg))
+    translateY(10px)
+    rotateX(14deg);
+  filter: drop-shadow(0 18px 18px rgba(0,0,0,0.35));
+}
+.zg-cardbtn:hover{
+  transform:
+    translateX(var(--hx, 0px))
+    rotate(var(--ha, 0deg))
+    translateY(-18px)
+    rotateX(0deg);
+}
+
+.zg-selected{
+  transform:
+    translateX(var(--hx, 0px))
+    rotate(var(--ha, 0deg))
+    translateY(-28px)
+    rotateX(0deg) !important;
+}
+
+/* Mobilais: mazākas kārtis, mazāka pārklāšanās */
+@media (max-width: 520px){
+  .zg-hand{ height: 150px; }
+  .zg-cardbtn{ margin-left: -44px; transform-origin: 50% 140px; }
+  .zg-trick{ width: 92%; }
+  .zg-slot-left{ left: 50px; }
+  .zg-slot-right{ right: 50px; }
+}
+
+/* ==========================
+   COŠAS KĀRTIS — PATCH
+   (kārtis košākas + labāk salasāmas uz tumša galda)
+   ========================== */
+
+/* Spēcīgāks kontrasts uz kārts */
+.zg-card{
+  background: linear-gradient(180deg, #ffffff 0%, #f3f7ff 62%, #e8eefc 100%);
+  border: 1px solid rgba(0,0,0,0.20);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.38);
+}
+.zg-card::after{
+  opacity: 0.48;
+}
+
+/* Melnais/kontrasts (ja nav .zg-card-red) */
+.zg-card:not(.zg-card-red){
+  color: #0f1622;
+}
+
+/* Sarkanais košāks */
+.zg-card-red{
+  color: #c51414;
+}
+
+/* Rank/Suit lielāki un skaidrāki */
+.zg-rank{
+  font-size: 24px;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.70);
+}
+.zg-suit{
+  font-size: 30px;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.65);
+}
+
+/* Legal highlight pamanāmāks (bet joprojām “premium”) */
+.zg-legal{
+  filter:
+    drop-shadow(0 0 12px rgba(255,255,255,0.28))
+    drop-shadow(0 0 26px rgba(210,164,23,0.18));
+}
+
+/* Selected kārts ar kontūru (nav destruktīvi, tikai vizuāls boosts) */
+.zg-cardbtn.zg-selected .zg-card{
+  outline: 2px solid rgba(210,164,23,0.85);
+  outline-offset: 2px;
+}
+
+/* Disabled joprojām atšķiras, bet nav “pazudusi” */
+.zg-disabled{
+  opacity: 0.55;
+}
+
+/* Uz galda (stiķī) — vēl nedaudz vairāk “pop” */
+.zg-trick .zg-card{
+  box-shadow:
+    0 18px 44px rgba(0,0,0,0.40),
+    0 0 0 1px rgba(255,255,255,0.14) inset;
+}
+
+/* (Opcija) Ja “Pretty Cards” markupā ir arī centra simbols vai stūri:
+   - šie selektori neko nesalauž, ja tādu elementu nav. */
+.zg-card .zg-pip{
+  position:absolute;
+  left:50%; top:50%;
+  transform: translate(-50%, -50%);
+  font-size: 46px;
+  font-weight: 900;
+  opacity: 0.95;
+  text-shadow: 0 2px 0 rgba(255,255,255,0.55);
+}
+.zg-card .zg-corner{
+  position:absolute;
+  display:grid;
+  gap:2px;
+  font-weight:1000;
+  line-height:1;
+}
+.zg-card .zg-corner.top{ top:10px; left:12px; }
+.zg-card .zg-corner.bottom{ bottom:10px; right:12px; transform: rotate(180deg); }
+.zg-card .zg-corner .zg-c-rank{ font-size: 18px; }
+.zg-card .zg-corner .zg-c-suit{ font-size: 18px; }
+/* ==========================
+   ZOLE — DESKTOP + MOBILE FULLSCREEN LAYOUT
+   ieliec style.css pašās beigās
+   ========================== */
+
+html, body{
+  width: 100%;
+  height: 100%;
+}
+
+body.zg-body{
+  margin: 0;
+  width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh; /* ja pārlūks atbalsta */
+  overflow: hidden;   /* spēlei parasti vajag bez scroll */
+  padding: 12px;      /* vari 0, ja gribi 100% edge-to-edge */
+}
+
+/* ja game lapā izmanto .zl-wrap / .zg-wrap, uztaisi to pilnu */
+body.zg-body .zl-wrap,
+body.zg-body .zg-wrap{
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* galda laukums elastīgs pēc ekrāna (atstāj vietu topbar + rokai) */
+body.zg-body .zg-felt{
+  height: calc(100vh - 240px);
+  height: calc(100dvh - 240px);
+  max-height: none;
+}
+
+/* roka apakšā lai vienmēr ir redzama */
+body.zg-body .zg-handwrap{
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1200px, 98vw);
+}
+/* ==========================
+   ZOLE — LOBBY TOP10
+   (ieliec style.css pašās beigās)
+   ========================== */
+
+.zl-lobby .zl-top10{
+  list-style: decimal;
+  padding-left: 18px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zl-lobby .zl-top10 li{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 10px 34px rgba(0,0,0,0.25);
+}
+
+.zl-lobby .zl-top10-left{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.zl-lobby .zl-top10-ava{
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  flex: 0 0 auto;
+}
+
+.zl-lobby .zl-top10-name{
+  font-weight: 900;
+  letter-spacing: .2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 56vw;
+}
+
+.zl-lobby .zl-top10-right{
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.zl-lobby .zl-top10-pts{
+  font-weight: 1000;
+}
+
+.zl-lobby .zl-top10-sub{
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Mazs “TOP3” akcents */
+.zl-lobby .zl-top10 li:nth-child(1){
+  border-color: rgba(210,164,23,0.55);
+  box-shadow: 0 10px 34px rgba(210,164,23,0.08), 0 10px 34px rgba(0,0,0,0.25);
+}
+.zl-lobby .zl-top10 li:nth-child(2){
+  border-color: rgba(255,255,255,0.20);
+}
+.zl-lobby .zl-top10 li:nth-child(3){
+  border-color: rgba(212,58,58,0.28);
+}
+
+/* Mobilais: lai vārds nepārsit layoutu */
+@media (max-width: 520px){
+  .zl-lobby .zl-top10-name{ max-width: 46vw; }
+}
+/* ==========================
+   ZOLE — INSIDE-FELT LAYOUT (B variants)
+   ========================== */
+ 
+/* TU (profilkarti) turam pa kreisi apakšā */
+#zgMeDock{
+  position: absolute;
+  left: 12px;
+  /* virs rokas (nepārklāj kārtis) */
+  bottom: calc(var(--hand-area-h, 220px) + 12px + env(safe-area-inset-bottom, 0px));
+  width: min(360px, 30vw);
+  z-index: 20; /* zem rokas/kārtīm */
+  pointer-events: none;
+}
+#zgMeDock #seatBottom{ width: 100%; }
+ 
+/* Roka + info vienmēr centrā apakšā, virs “dock” */
+#zgBottomStack{
+  position: absolute;
+  left: 50%;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(1400px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 90;
+  pointer-events: none;
+}
+#zgBottomStack #handInfo{
+  font-size: 12px;
+  opacity: 0.85;
+  text-align: center;
+  padding: 0 10px;
+  pointer-events: none;
+}
+#zgBottomStack #hand{
+  position: relative;
+  width: 100%;
+  height: 220px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding-bottom: 2px;
+  pointer-events: auto;
+}
+ 
+/* Taisna roka: visas kārtis redzamas */
+#zgBottomStack #hand{
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+ 
+#zgBottomStack #hand .zg-cardbtn{
+  margin-left: 0;
+  transform: none;
+  width: clamp(62px, 9vw, 118px);
+  height: auto;
+}
+ 
+#zgBottomStack #hand .zg-cardbtn:hover{
+  transform: translateY(-10px);
+}
+ 
+#zgBottomStack #hand .zg-cardbtn.zg-selected{
+  transform: translateY(-14px) !important;
+}
+ 
+#zgBottomStack #hand .zg-cardbtn .zg-card{
+  width: 100%;
+  height: auto;
+  aspect-ratio: 118 / 166;
+}
+
+#zgBottomStack #hand .zg-cardbtn:first-child{ margin-left: 0; }
+#zgBottomStack #hand .zg-cardbtn:hover{
+  transform:
+    translateX(calc(var(--t) * 18px))
+    rotate(calc(var(--t) * 4deg))
+    translateY(-18px)
+    rotateX(0deg);
+  z-index: 9999;
+}
+#zgBottomStack #hand .zg-cardbtn.zg-selected{
+  transform:
+    translateX(calc(var(--t) * 18px))
+    rotate(calc(var(--t) * 4deg))
+    translateY(-28px)
+    rotateX(0deg) !important;
+  z-index: 9999;
+}
+#zgBottomStack #hand .zg-cardbtn.zg-disabled{
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* Viena rinda, lielas kārtis, scroll pa horizontāli */
+#zgBottomStack #hand{
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 12px 6px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+ 
+#zgBottomStack #hand .zg-cardbtn{
+  flex: 0 0 auto;
+  margin-left: 0;
+  width: 120px;          /* PC */
+}
+ 
+@media (max-width: 520px){
+  #zgBottomStack #hand .zg-cardbtn{
+    width: 104px;        /* Phone – joprojām liela */
+  }
+}
+ 
+/* Scroll “snap”, lai viegli pārvilkt */
+#zgBottomStack #hand .zg-cardbtn{
+  scroll-snap-align: center;
+}
+ 
+/* Mazāks noapaļojums */
+.zg-card{ border-radius: 6px; }
+.zg-card.zg-pretty{ border-radius: 6px; }
+ 
+/* Lielāki stūru cipari/masti (pretty markup) */
+.zg-card.zg-pretty .zg-crank{ font-size: 30px; font-weight: 1000; }
+.zg-card.zg-pretty .zg-csuit{ font-size: 22px; font-weight: 900; }
+
+/* ==========================
+   CLEAN OVERRIDES (2026-01)
+   - pilnekrāna lapa
+   - galds vizuāli mazāks (contain)
+   - kārtis bez apaļiem stūriem
+   - liekie uzraksti nost
+   ========================== */
+
+body.zl-game{
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.zl-game .zl-wrap{
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+/* galds pa visu ekrānu, bet bilde nav “pār-zoom” */
+body.zl-game #felt.zg-felt{
+  width: min(1200px, 96vw);
+  margin: 0 auto;
+  background-size: contain;
+  /* “tabula mazāka”: uz lieliem ekrāniem neizstiep līdz bezgalībai */
+  height: clamp(420px, calc(100dvh - 170px), 740px);
+}
+
+/* kur likt kārtis: stiķis centrā */
+#trick{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, 96vw);
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* kārtis bez apaļiem stūriem + lielāki masti/skaitļi */
+.zg-card,
+.zg-card.zg-pretty,
+.zg-card.zg-pretty::before{
+  border-radius: 0 !important;
+}
+
+.zg-card.zg-pretty .zg-crank{ font-size: 30px !important; }
+.zg-card.zg-pretty .zg-csuit{ font-size: 22px !important; }
+.zg-card.zg-pretty .zg-pip{ font-size: 74px !important; opacity: 0.20 !important; }
+
+/* liekie uzraksti nost */
+#handInfo{ display: none !important; }
+#overlayNote{ display: none !important; }
+
+/* Desktop: roka centrā (nevis pie kreisās malas) */
+@media (min-width: 721px){
+  #zgBottomStack #hand{
+    justify-content: center !important;
+    overflow-x: visible !important;
+    scroll-snap-type: none !important;
+  }
+  #zgBottomStack #hand .zg-cardbtn{
+    scroll-snap-align: unset !important;
+  }
+
+  /* PTS tabula pa labi pa vidu */
+  #miniPtsHud{
+    top: clamp(54px, 50%, calc(100dvh - 54px)) !important;
+    bottom: auto !important;
+    right: 10px !important;
+    width: 128px !important;
+    transform: translateY(-50%) !important;
+    opacity: 0.88;
+    z-index: 40 !important; /* zem kārtīm/stiķa, lai nepārklāj */
+    max-height: calc(100dvh - 108px);
+    overflow: auto;
+  }
+}
+
+/* status čips */
+.zg-status{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(238,242,255,0.92);
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(760px, 62vw);
+}
+
+.zg-online{
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(238,242,255,0.86);
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+/* izcelt gājienu/lielo uz seat kartītēm */
+.zg-seat.zg-seat-turn{
+  outline: 2px solid rgba(210,164,23,0.70);
+  outline-offset: 2px;
+}
+.zg-seat.zg-seat-big{
+  outline: 2px solid rgba(57,217,138,0.60);
+  outline-offset: 2px;
+}
+
+/* Rokas kāršu izmērs/overlap no JS mainīgajiem */
+#zgBottomStack #hand .zg-cardbtn{
+  width: var(--card-w, 120px) !important;
+}
+#zgBottomStack #hand .zg-cardbtn + .zg-cardbtn{
+  margin-left: calc(-1 * var(--overlap, 60px)) !important;
+}
+
+/* pēdējais gājiens: izcelt + paturēt redzamu */
+.zg-trickwrap{ display: inline-block; }
+.zg-last-played{
+  animation: zgPopIn 180ms ease;
+}
+.zg-last-played .zg-card{
+  outline: 3px solid rgba(210,164,23,0.85);
+  outline-offset: 2px;
+  box-shadow:
+    0 22px 60px rgba(0,0,0,0.45),
+    0 0 0 2px rgba(255,255,255,0.14) inset;
+}
+@keyframes zgPopIn{
+  from { transform: translateY(6px) scale(0.98); opacity: 0.88; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Stiķa slot foni (lai skaidri kur likt) */
+.zg-slot{
+  background: rgba(0,0,0,0.12);
+  border: 1px dashed rgba(255,255,255,0.16);
+}
+
+/* Player kartītes mazākas + tuvāk sienām (desktop) */
+@media (min-width: 721px){
+  .zg-seat{
+    width: 200px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+  .zg-top-left{ top: 8px; left: 8px; }
+  .zg-top-right{ top: 8px; right: 8px; }
+  #zgMeDock{ left: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Desktop 1440p+ (lielāks monitors): nedaudz plašāks un “elpojošāks” izkārtojums */
+@media (min-width: 1440px){
+  .zg-seat{
+    padding: 10px;
+    border-radius: 14px;
+  }
+  .zg-top-left{ top: 12px; left: 12px; }
+  .zg-top-right{ top: 12px; right: 12px; }
+
+  /* Stiķī vairāk atstarpes, lai neizskatās saspiesti */
+  .zg-trick{ width: min(760px, 92vw); }
+  .zg-slot-left{ left: 110px; top: 30px; }
+  .zg-slot-right{ right: 110px; top: 30px; }
+  .zg-slot-bottom{ bottom: 4px; }
+
+  /* Status čipam ļaujam būt garākam */
+  .zg-status{ max-width: min(980px, 64vw); }
+}
+
+/* Košākas kārtis (cipari/masti/figūras) */
+.zg-card.zg-pretty{
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 60%, #eef4ff 100%) !important;
+  border: 1px solid rgba(0,0,0,0.26) !important;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.38) !important;
+}
+.zg-card.zg-pretty:not(.zg-card-red){ color:#0b111a !important; }
+.zg-card.zg-pretty.zg-card-red{ color:#d10000 !important; }
+.zg-card.zg-pretty .zg-crank,
+.zg-card.zg-pretty .zg-csuit{
+  text-shadow: 0 1px 0 rgba(255,255,255,0.85);
+}
+.zg-card.zg-pretty .zg-pip{
+  opacity: 0.30 !important; /* lai masts/figūra ir redzamāka */
+}
+
+/* Kārts ar bildi (SVG/PNG) */
+.zg-card.zg-img{
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 0 !important;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.18);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.34);
+}
+.zg-card.zg-img img{
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+/* ==========================
+   MOBILE GAME LAYOUT (readable)
+   ========================== */
+@media (max-width: 720px){
+  body.zl-game{
+    padding: 0;
+  }
+
+  /* topbar kompaktāks */
+  .zg-top{
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 250;
+    margin: 0;
+    padding: 6px 8px;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: rgba(0,0,0,0.35);
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+    backdrop-filter: blur(8px);
+  }
+  .zg-right{ gap: 8px; flex-wrap: wrap; }
+  .zg-brand{ display:none; } /* lieks uz maza ekrāna */
+  /* status + taimeris: vajag redzēt 25s gājienu */
+  .zg-status{
+    display: inline-flex;
+    max-width: 62vw;
+    padding: 4px 8px;
+    font-size: 12px;
+    opacity: 0.92;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .zg-online{
+    display: inline-flex;
+    padding: 4px 8px;
+    font-size: 12px;
+    opacity: 0.92;
+    max-width: 62vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* pogas mazākas, lai redz kārtis */
+  .zg-ready, .zg-btn, .zg-leave{
+    height: 32px;
+    padding: 0 8px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+  .zg-room{ font-size: 12px; }
+
+  /* galds pa visu ekrānu */
+  body.zl-game #felt.zg-felt{
+    width: 100vw !important;
+    height: 100dvh !important;
+    background-size: cover !important;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  /* pretinieku kartītes mazākas + pie sienām */
+  .zg-seat{
+    width: 168px;
+    padding: 6px;
+    border-radius: 12px;
+  }
+  /* nolaižam zem fixed header */
+  .zg-top-left{ top: 58px; left: 6px; }
+  .zg-top-right{ top: 58px; right: 6px; }
+
+  /* TU dock netraucē rokai */
+  #zgMeDock{
+    width: min(240px, 72vw);
+    left: 50%;
+    /* virs rokas (nepārklāj kārtis) */
+    bottom: calc(var(--hand-area-h, 220px) + 10px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    opacity: 1;
+    z-index: 120;
+    pointer-events: none;
+    filter: drop-shadow(0 10px 22px rgba(0,0,0,0.35));
+  }
+  #zgMeDock::before{ display:none; }
+
+/* PTS toggle poga */
+.zg-btn{
+  height:38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  cursor:pointer;
+  font-weight:900;
+}
+
+.zg-input{
+  width: 100%;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  padding: 8px 10px;
+  outline: none;
+}
+textarea.zg-input{
+  height: auto;
+  min-height: 110px;
+  resize: vertical;
+}
+
+/* "TU" kartīte (mobīlā) - mazliet necaurspīdīgāka, lai izskatās kā aplikācijā */
+@media (max-width: 720px){
+  #zgMeDock .zg-seat{
+    background: rgba(0,0,0,0.62);
+    border-color: rgba(255,255,255,0.14);
+  }
+}
+  #zgMeDock #seatBottom .zg-seat-inner{
+    transform: scale(0.78);
+    transform-origin: bottom center;
+  }
+
+  /* Mobilajā: vārds galvenais, pārējo minimizējam */
+  .zg-seat .zg-avatar,
+  .zg-seat .zg-backs{ display:none !important; }
+  .zg-seat .zg-name{
+    font-size: 14px;
+  }
+  .zg-seat .zg-pts{ display:block; }
+  .zg-seat .zg-subline{
+    font-size: 11px;
+    color: rgba(238,242,255,0.78);
+  }
+
+  /* stiķis centrā mazliet mazāks */
+  #trick{
+    width: min(520px, 96vw);
+    top: 46%;
+  }
+  .zg-slot{ width: 86px; height: 120px; }
+
+  /* roka: lielas kārtis + horizontāls scroll */
+  #zgBottomStack{
+    width: 96vw;
+    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+    padding-left: 6px;
+    padding-right: 6px;
+    z-index: 110;
+  }
+  #zgBottomStack #hand{
+    /* augstums atkarīgs no kārts izmēra (lai nekas netiek nogriezts) */
+    height: min(56vh, calc(var(--card-w, 96px) * 1.46 + 62px));
+    overflow-x: hidden; /* lai nekas neiet ārā pa sāniem */
+    overflow-y: visible; /* lai paceļot kārtis netiek nogriezts */
+    padding: 0 10px 6px;
+    gap: 0;
+    justify-content: center !important; /* lai roka ir centrā */
+  }
+  #zgBottomStack #hand .zg-cardbtn{
+    width: 96px;
+    height: calc(var(--card-w, 96px) * 1.40);
+  }
+
+  /* PTS tabula pa labi pa vidu (mazāka) */
+  #miniPtsHud{
+    top: clamp(64px, 50%, calc(100dvh - 64px)) !important;
+    bottom: auto !important;
+    right: max(4px, env(safe-area-inset-right, 0px)) !important;
+    width: 118px !important;
+    padding: 6px 6px 5px !important;
+    border-radius: 10px !important;
+    z-index: 40 !important; /* zem kārtīm/stiķa, lai nepārklāj */
+    transform: translateY(-50%) !important;
+    opacity: 0.88;
+    max-height: calc(100dvh - 128px);
+    overflow: auto;
+  }
+  #miniPtsHud .mph-title{ font-size: 11px !important; margin-bottom: 4px !important; }
+  #miniPtsHud .mph-grid{ font-size: 10px !important; row-gap: 3px !important; column-gap: 4px !important; }
+}
+
+/* Landscape (gareniski): kā aplikācijā — vairāk vietas galdam, HUD mazs */
+@media (max-width: 920px) and (orientation: landscape){
+  #miniPtsHud{
+    right: 6px !important;
+    width: 110px !important;
+  }
+  body.zl-game #zgBottomStack #hand{
+    height: min(48vh, calc(var(--card-w, 96px) * 1.46 + 52px)) !important;
+  }
+}
+
+/* Desktop: topbar mazāks */
+@media (min-width: 721px){
+  .zg-top{ margin-bottom: 8px; }
+  .zg-ready, .zg-btn, .zg-leave{
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+}
+
+/* Overlay (menu) mazāks, lai netraucē kārtīm */
+.zg-overlay{
+  width: min(280px, 86vw);
+  padding: 12px;
+}
+.zg-bid{
+  height: 46px;
+  font-size: 18px;
+}
+
+/* ==========================
+   TALON (2 galda kārtis) — vienmēr redzamas
+   ========================== */
+.zg-talon{
+  position: absolute;
+  left: 14px;
+  top: 48%;
+  transform: translateY(-50%);
+  z-index: 55; /* zem stiķa (60), virs galda */
+  pointer-events: none;
+  display: none; /* pēc noklusējuma slēpts, JS ieslēdz kad vajag */
+}
+.zg-talon.is-visible{ display: block; }
+.zg-talon-label{
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  opacity: 0.8;
+  margin: 0 0 6px;
+}
+.zg-talon-cards{
+  display: flex;
+  gap: 0;
+}
+.zg-cardback{
+  width: 44px;
+  height: 64px;
+  border-radius: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  background-image: var(
+    --cardback-img,
+    linear-gradient(180deg, rgba(255,255,255,0.14), rgba(0,0,0,0.18)),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,0.10),
+      rgba(255,255,255,0.10) 6px,
+      rgba(0,0,0,0.10) 6px,
+      rgba(0,0,0,0.10) 12px
+    )
+  );
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 14px 30px rgba(0,0,0,0.30);
+}
+.zg-talon-cards .zg-cardback + .zg-cardback{
+  margin-left: -18px;
+}
+
+@media (max-width: 720px){
+  /* 2 galda kārtis pārvietojam zem header */
+  .zg-talon{
+    left: 10px;
+    top: 152px;
+    transform: none;
+  }
+  .zg-cardback{
+    width: 40px;
+    height: 58px;
+  }
+}
+
+/* ==========================
+   MOBILE HAND (FAN/OVERLAP)
+   - visas kārtis redzamas uzreiz
+   - DISCARD režīmā vairāk overlap (jo 10 kārtis)
+   - tap = paceļ, dubulttap = norok (loģika game.js)
+   ========================== */
+@media (max-width: 720px){
+  body.zl-game #zgBottomStack #hand{
+    /* neļaujam “scroll” režīmam uzvarēt */
+    overflow-x: hidden !important;
+    scroll-snap-type: none !important;
+    transform: translateX(var(--hand-shift, 0px)) !important;
+    overflow-y: visible !important;
+  }
+
+  body.zl-game #zgBottomStack #hand .zg-cardbtn{
+    /* overlapped fan */
+    transform-origin: 50% 160px;
+    transform:
+      translateX(calc(var(--t, 0) * 12px))
+      translateY(0px);
+    transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
+  }
+
+  /* DISCARD: vairāk overlap, lai 10 kārtis ietilpst */
+  body.zl-game #zgBottomStack #hand[data-phase="DISCARD"]{
+    /* vēl nedaudz ciešāk */
+    --overlap: calc(var(--overlap, 60px) + 12px);
+  }
+
+  body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
+    transform:
+      translateX(calc(var(--t, 0) * 12px))
+      translateY(0px);
+    z-index: 9999;
+  }
+
+  body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected{
+    transform:
+      translateX(calc(var(--t, 0) * 12px))
+      translateY(0px);
+    z-index: 9999;
+  }
+
+  /* Izvēlētai kārtij izcēlums, nevis “palielināšana” */
+  body.zl-game #zgBottomStack #hand .zg-cardbtn.zg-selected .zg-card{
+    outline: 3px solid rgba(210,164,23,0.85);
+    outline-offset: 2px;
+  }
+}
+
+/* Touch ierīcēs neizmantojam hover “paceļ” efektus */
+@media (hover: none) and (pointer: coarse){
+  body.zl-game #zgBottomStack #hand .zg-cardbtn:hover{
+    transform:
+      translateX(calc(var(--t, 0) * 12px))
+      translateY(0px) !important;
+  }
+}
+
+/* Fullscreen: mazliet vairāk vietas rokai (lai paceļot negriež) */
+body.zg-fullscreen #zgBottomStack #hand{
+  padding-top: 14px;
+  height: min(62vh, calc(var(--card-w, 110px) * 1.46 + 70px));
+}
+
+/* DISCARD: paceļot kārtis, lai nepazūd */
+#zgBottomStack #hand[data-phase="DISCARD"]{
+  padding-top: 18px;
+}
+
+/* ==========================
+   STANDARD SIZING SYSTEM (3-player card game)
+   Viss atvasināts no --card-w (JS to uzstāda runtime).
+   ========================== */
+:root{
+  --card-w: 96px;
+  --card-h: 134px;
+  --trick-card-w: 90px;
+  --trick-card-h: 126px;
+  --talon-w: 44px;
+  --talon-h: 62px;
+  --seat-w: 180px;
+  --hand-area-h: 220px;
+}
+
+/* Roka */
+body.zl-game #zgBottomStack #hand{
+  height: var(--hand-area-h) !important;
+}
+body.zl-game #zgBottomStack #hand .zg-cardbtn{
+  width: var(--card-w) !important;
+  height: var(--card-h) !important;
+}
+body.zl-game #zgBottomStack #hand .zg-cardbtn .zg-card{
+  width: 100%;
+  height: 100%;
+}
+
+/* Stiķis */
+body.zl-game .zg-slot{
+  width: var(--trick-card-w) !important;
+  height: var(--trick-card-h) !important;
+}
+body.zl-game .zg-trick-cards{
+  height: calc(var(--trick-card-h) + 44px) !important;
+}
+
+/* Talons */
+body.zl-game .zg-cardback{
+  width: var(--talon-w) !important;
+  height: var(--talon-h) !important;
+}
+
+/* Spēlētāju kartītes */
+body.zl-game .zg-seat{
+  width: var(--seat-w) !important;
+}
+
+/* MINI PTS HUD: neļaut cipariem “izkrist” ārā */
+#miniPtsHud .mph-grid{ min-width: 0; }
+#miniPtsHud .mph-head,
+#miniPtsHud .mph-val{
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

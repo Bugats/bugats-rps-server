@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="lv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>ZOLE — Lobby</title>
+
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+
+  <body class="zl-body zl-lobby">
+    <div class="zl-wrap">
+      <!-- z-index, lai nekas nepārklāj header klikšķus (overlay/iframes gadījumos) -->
+      <header class="zl-top" style="position:relative; z-index:50;">
+        <div class="zl-brand">
+          <div class="zl-logo">Z</div>
+          <div>
+            <div class="zl-title">ZOLE</div>
+            <div class="zl-sub">thezone.lv • Lobby</div>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px;">
+          <!-- Atpakaļ uz login/reģistrāciju -->
+          <a
+            id="btnBackAuth"
+            class="zl-btn"
+            href="/auth.html"
+            target="_top"
+            rel="noopener"
+            title="Atpakaļ uz login/reģistrāciju"
+          >
+            Atpakaļ
+          </a>
+
+          <div class="zl-conn">
+            <span id="connDot" class="zl-dot zl-dot-off"></span>
+            <span id="connLabel">Nav savienojuma</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="zl-card">
+        <h2>Istabas</h2>
+
+        <!-- PROFILS (pēc login) -->
+        <div
+          id="profileBar"
+          style="
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            margin: 10px 0 16px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+          "
+        >
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div
+              id="profileAvatar"
+              style="
+                width:40px;height:40px;border-radius:999px;
+                background: rgba(255,255,255,0.08);
+                border: 1px solid rgba(255,255,255,0.10);
+                overflow:hidden;
+                display:grid;place-items:center;
+                font-weight:900;
+              "
+            >
+              Z
+            </div>
+
+            <div>
+              <div style="font-weight:900;">
+                Pieslēdzies kā: <span id="profileName">—</span>
+              </div>
+              <div style="opacity:0.85; font-size:13px;">
+                PTS: <span id="profilePts">—</span>
+              </div>
+            </div>
+          </div>
+
+          <a
+            id="btnChangeProfile"
+            class="zl-btn"
+            href="/auth.html"
+            target="_top"
+            rel="noopener"
+            title="Mainīt profilu"
+          >
+            Mainīt profilu
+          </a>
+        </div>
+
+        <div class="zl-form">
+          <!-- Niks vairs nav redzams, bet app.js saderībai paturam hidden -->
+          <input id="nick" type="hidden" />
+
+          <label>
+            Avatārs (URL)
+            <input id="avatarUrl" type="text" placeholder="https://..." />
+          </label>
+
+          <label>
+            Istaba (ROOM)
+            <input id="roomId" type="text" placeholder="piem., A1B2" />
+          </label>
+
+          <div class="zl-row">
+            <button id="btnCreate" class="zl-btn zl-primary" type="button">Izveidot istabu</button>
+            <button id="btnJoin" class="zl-btn" type="button">Pievienoties</button>
+            <button id="btnQuick" class="zl-btn zl-primary" type="button" title="Ātrā spēle — iemet pirmajā brīvajā istabā">
+              Ātrā spēle
+            </button>
+            <button id="btnLastRoom" class="zl-btn" type="button" title="Pievienoties pēdējai istabai">
+              Pēdējā istaba
+            </button>
+            <button id="btnFeedback" class="zl-btn" type="button" title="Nosūtīt atsauksmi">
+              Atsauksmes
+            </button>
+          </div>
+
+          <div class="zl-hint">
+            Testam: atver 3 logus ar dažādiem profiliem, visi pievienojas tai pašai ROOM, un spēlē READY spiedīs game lapā.
+          </div>
+
+          <div id="errBox" class="zl-err" style="display:none;"></div>
+
+          <!-- ===== Atvērtās istabas (live) ===== -->
+          <div style="height:14px;"></div>
+
+          <div class="zl-row" style="align-items:center; justify-content:space-between;">
+            <div style="font-weight:800;">Atvērtās istabas</div>
+            <button id="btnRefreshRooms" class="zl-btn" type="button">Atjaunināt</button>
+          </div>
+
+          <div id="roomsEmpty" class="zl-hint" style="margin-top:8px; display:none;">
+            Nav atrasta neviena atvērta istaba. Izveido istabu vai pagaidi, kamēr kāds to atver.
+          </div>
+
+          <div id="roomsList" style="margin-top:10px; display:grid; gap:10px;"></div>
+
+          <!-- ===== TOP10 ===== -->
+          <div style="height:16px;"></div>
+
+          <div class="zl-row" style="align-items:center; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="font-weight:800;">TOP 10</div>
+              <button id="btnTopAll" class="zl-btn" type="button" title="Visu laiku">Visu laiku</button>
+              <button id="btnTopMonth" class="zl-btn" type="button" title="Šomēnes">Šomēnes</button>
+              <button id="btnTopWeek" class="zl-btn" type="button" title="Šonedēļ">Šonedēļ</button>
+            </div>
+            <button id="btnRefreshTop10" class="zl-btn" type="button">Atjaunināt</button>
+          </div>
+
+          <div id="top10Empty" class="zl-hint" style="margin-top:8px; display:none;">
+            Nav datu.
+          </div>
+
+          <ol id="top10List" class="zl-top10" style="margin-top:10px;"></ol>
+        </div>
+      </main>
+
+      <div class="zl-modal" id="feedbackModal" style="display:none" aria-hidden="true">
+        <div class="zl-modal-card" role="dialog" aria-modal="true" aria-label="Atsauksmes">
+          <div class="zl-modal-top">
+            <div style="font-weight:900;">Atsauksmes</div>
+            <button class="zl-btn" id="btnFeedbackClose" type="button">Aizvērt</button>
+          </div>
+          <div class="zl-modal-body">
+            <label>
+              Tips
+              <select id="feedbackType" class="zl-input">
+                <option value="bug">Bug</option>
+                <option value="idea">Ideja</option>
+                <option value="feedback" selected>Atsauksme</option>
+              </select>
+            </label>
+            <label>
+              Ziņa (vēlams: ierīce/browseris + kas tieši notika)
+              <textarea id="feedbackMsg" class="zl-input" rows="5" placeholder="Apraksti īsi un konkrēti..."></textarea>
+            </label>
+            <div class="zl-row" style="justify-content:flex-end;">
+              <button class="zl-btn zl-primary" id="btnFeedbackSend" type="button">Sūtīt</button>
+            </div>
+            <div class="zl-hint" id="feedbackHint">Room tiks pievienots automātiski (ja ir).</div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="zl-foot">thezone.lv • Zole</footer>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- Force “Atpakaļ/Mainīt profilu” strādāt arī iframe/WordPress embed gadījumā -->
+    <script>
+      (function () {
+        function bindTopNav(id, url) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener("click", function (e) {
+            e.preventDefault();
+            try {
+              window.top.location.href = url;
+            } catch (_) {
+              window.location.href = url;
+            }
+          });
+        }
+        bindTopNav("btnBackAuth", "/auth.html");
+        bindTopNav("btnChangeProfile", "/auth.html");
+      })();
+    </script>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

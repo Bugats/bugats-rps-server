@@ -1,0 +1,96 @@
+[2026-01-13T03:46:50.643Z] [ERROR] uncaughtException Error: listen EADDRINUSE: address already in use :::10080
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at Object.<anonymous> (/workspace/server.js:2862:8)
+    at Module._compile (node:internal/modules/cjs/loader:1706:14)
+    at Object..js (node:internal/modules/cjs/loader:1839:10)
+    at Module.load (node:internal/modules/cjs/loader:1441:32)
+    at Function._load (node:internal/modules/cjs/loader:1263:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24)
+[2026-01-13T03:46:50.644Z] [INFO] rooms saved (0) uncaughtException
+[2026-01-13T03:47:15.565Z] [INFO] rooms saved (0) SIGTERM
+[2026-01-13T03:47:25.354Z] [INFO] [zole] listening on :18080
+[2026-01-13T03:47:25.354Z] [INFO] [zole] START_PTS=1000
+[2026-01-13T03:47:25.355Z] [INFO] [zole] TURN_MS=25000
+[2026-01-13T03:47:25.355Z] [INFO] [zole] AUTO_START_MS=1200
+[2026-01-13T03:47:25.355Z] [INFO] [zole] AUTO_NEXT_HAND_MS=2000
+[2026-01-13T03:47:25.355Z] [INFO] [zole] TRICK_PAUSE_MS=2500
+[2026-01-13T03:47:25.355Z] [INFO] [zole] ENABLE_ROOM_PERSIST=1
+[2026-01-13T03:47:25.355Z] [INFO] [zole] ROOM_SAVE_INTERVAL_MS=5000
+[2026-01-13T03:47:25.355Z] [INFO] [zole] ROOMS_PATH=/workspace/data/zole_rooms.json
+[2026-01-13T03:47:25.355Z] [INFO] [zole] USERS=/workspace/data/zole_users.json
+[2026-01-13T03:47:25.355Z] [INFO] [zole] LEADERBOARD=/workspace/data/zole_leaderboard.json
+[2026-01-13T03:47:25.355Z] [INFO] [zole] BACKUPS=/workspace/data/backups
+[2026-01-13T03:47:25.355Z] [INFO] [zole] CORS_ORIGINS: ANY
+[2026-01-13T03:47:26.598Z] [INFO] rooms saved (1) JOIN
+[2026-01-13T03:47:27.803Z] [INFO] rooms saved (1) NEW_HAND_DEALT
+[2026-01-13T03:47:30.308Z] [INFO] rooms saved (1) DISCONNECT
+[2026-01-13T03:47:50.276Z] [INFO] rooms saved (1) SIGTERM
+[2026-01-13T03:48:36.183Z] [INFO] rooms restored (1) /workspace/data/zole_rooms.json
+[2026-01-13T03:48:36.185Z] [INFO] [zole] listening on :18081
+[2026-01-13T03:48:36.186Z] [INFO] [zole] START_PTS=1000
+[2026-01-13T03:48:36.186Z] [INFO] [zole] TURN_MS=25000
+[2026-01-13T03:48:36.186Z] [INFO] [zole] AUTO_START_MS=1200
+[2026-01-13T03:48:36.186Z] [INFO] [zole] AUTO_NEXT_HAND_MS=2000
+[2026-01-13T03:48:36.186Z] [INFO] [zole] TRICK_PAUSE_MS=2500
+[2026-01-13T03:48:36.186Z] [INFO] [zole] ENABLE_ROOM_PERSIST=1
+[2026-01-13T03:48:36.186Z] [INFO] [zole] ROOM_SAVE_INTERVAL_MS=5000
+[2026-01-13T03:48:36.186Z] [INFO] [zole] ROOMS_PATH=/workspace/data/zole_rooms.json
+[2026-01-13T03:48:36.186Z] [INFO] [zole] USERS=/workspace/data/zole_users.json
+[2026-01-13T03:48:36.186Z] [INFO] [zole] LEADERBOARD=/workspace/data/zole_leaderboard.json
+[2026-01-13T03:48:36.186Z] [INFO] [zole] BACKUPS=/workspace/data/backups
+[2026-01-13T03:48:36.186Z] [INFO] [zole] CORS_ORIGINS: ANY
+[2026-01-13T03:48:37.426Z] [INFO] rooms saved (2) JOIN
+[2026-01-13T03:48:38.637Z] [INFO] rooms saved (2) NEW_HAND_DEALT
+[2026-01-13T03:49:01.106Z] [INFO] rooms saved (2) SIGTERM
+[2026-01-13T04:03:58.757Z] [INFO] rooms restored (2) /workspace/data/zole_rooms.json
+[2026-01-13T04:03:58.759Z] [INFO] [zole] listening on :18082
+[2026-01-13T04:03:58.759Z] [INFO] [zole] START_PTS=1000
+[2026-01-13T04:03:58.759Z] [INFO] [zole] TURN_MS=25000
+[2026-01-13T04:03:58.759Z] [INFO] [zole] AUTO_START_MS=1200
+[2026-01-13T04:03:58.759Z] [INFO] [zole] AUTO_NEXT_HAND_MS=2000
+[2026-01-13T04:03:58.759Z] [INFO] [zole] TRICK_PAUSE_MS=2500
+[2026-01-13T04:03:58.759Z] [INFO] [zole] ENABLE_ROOM_PERSIST=1
+[2026-01-13T04:03:58.759Z] [INFO] [zole] ROOM_SAVE_INTERVAL_MS=5000
+[2026-01-13T04:03:58.759Z] [INFO] [zole] ROOMS_PATH=/workspace/data/zole_rooms.json
+[2026-01-13T04:03:58.759Z] [INFO] [zole] USERS=/workspace/data/zole_users.json
+[2026-01-13T04:03:58.759Z] [INFO] [zole] LEADERBOARD=/workspace/data/zole_leaderboard.json
+[2026-01-13T04:03:58.759Z] [INFO] [zole] BACKUPS=/workspace/data/backups
+[2026-01-13T04:03:58.759Z] [INFO] [zole] CORS_ORIGINS: ANY
+[2026-01-13T04:03:59.710Z] [INFO] rooms saved (2) SIGTERM
+[2026-01-13T04:12:11.174Z] [INFO] rooms restored (2) /workspace/data/zole_rooms.json
+[2026-01-13T04:12:11.176Z] [INFO] [zole] listening on :18083
+[2026-01-13T04:12:11.176Z] [INFO] [zole] START_PTS=1000
+[2026-01-13T04:12:11.176Z] [INFO] [zole] TURN_MS=25000
+[2026-01-13T04:12:11.176Z] [INFO] [zole] AUTO_START_MS=1200
+[2026-01-13T04:12:11.176Z] [INFO] [zole] AUTO_NEXT_HAND_MS=2000
+[2026-01-13T04:12:11.176Z] [INFO] [zole] TRICK_PAUSE_MS=2500
+[2026-01-13T04:12:11.176Z] [INFO] [zole] ENABLE_ROOM_PERSIST=1
+[2026-01-13T04:12:11.176Z] [INFO] [zole] ROOM_SAVE_INTERVAL_MS=5000
+[2026-01-13T04:12:11.176Z] [INFO] [zole] ROOMS_PATH=/workspace/data/zole_rooms.json
+[2026-01-13T04:12:11.176Z] [INFO] [zole] USERS=/workspace/data/zole_users.json
+[2026-01-13T04:12:11.177Z] [INFO] [zole] LEADERBOARD=/workspace/data/zole_leaderboard.json
+[2026-01-13T04:12:11.177Z] [INFO] [zole] BACKUPS=/workspace/data/backups
+[2026-01-13T04:12:11.177Z] [INFO] [zole] CORS_ORIGINS: ANY
+[2026-01-13T04:12:12.417Z] [INFO] rooms saved (3) JOIN
+[2026-01-13T04:12:13.628Z] [INFO] rooms saved (3) NEW_HAND_DEALT
+[2026-01-13T04:12:36.096Z] [INFO] rooms saved (3) SIGTERM
+[2026-01-13T04:35:17.517Z] [INFO] rooms restored (3) /workspace/data/zole_rooms.json
+[2026-01-13T04:35:17.519Z] [INFO] [zole] listening on :18084
+[2026-01-13T04:35:17.519Z] [INFO] [zole] START_PTS=1000
+[2026-01-13T04:35:17.519Z] [INFO] [zole] TURN_MS=25000
+[2026-01-13T04:35:17.519Z] [INFO] [zole] AUTO_START_MS=1200
+[2026-01-13T04:35:17.519Z] [INFO] [zole] AUTO_NEXT_HAND_MS=2000
+[2026-01-13T04:35:17.519Z] [INFO] [zole] TRICK_PAUSE_MS=2500
+[2026-01-13T04:35:17.519Z] [INFO] [zole] ENABLE_ROOM_PERSIST=1
+[2026-01-13T04:35:17.519Z] [INFO] [zole] ROOM_SAVE_INTERVAL_MS=5000
+[2026-01-13T04:35:17.520Z] [INFO] [zole] ROOMS_PATH=/workspace/data/zole_rooms.json
+[2026-01-13T04:35:17.520Z] [INFO] [zole] USERS=/workspace/data/zole_users.json
+[2026-01-13T04:35:17.520Z] [INFO] [zole] LEADERBOARD=/workspace/data/zole_leaderboard.json
+[2026-01-13T04:35:17.520Z] [INFO] [zole] BACKUPS=/workspace/data/backups
+[2026-01-13T04:35:17.520Z] [INFO] [zole] CORS_ORIGINS: ANY
+[2026-01-13T04:35:18.763Z] [INFO] rooms saved (4) JOIN
+[2026-01-13T04:35:19.973Z] [INFO] rooms saved (4) NEW_HAND_DEALT
+[2026-01-13T04:35:42.440Z] [INFO] rooms saved (4) SIGTERM
