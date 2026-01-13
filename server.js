@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
+const { computePayEachClassic } = require("./scoring");
 
 const PORT = process.env.PORT || 10080;
 
@@ -1722,7 +1723,7 @@ function finishHandToLobby(room, lastResult, extraNote) {
 }
 
 /* ============================
-   SCORE — TAKE/ZOLE (Bugats tabula)
+   SCORE — TAKE/ZOLE (klasiskā tabula)
    ============================ */
 function scoreTakeOrZole(room) {
   const snap = snapshotSeatPts(room);
@@ -1744,36 +1745,15 @@ function scoreTakeOrZole(room) {
   const oppEyes = totalEyes - bigEyes;
   const oppTricks = 8 - bigTricks;
 
-  let payEachSigned = 0;
-  let bigWins = false;
-  let status = "";
+  const calc = computePayEachClassic(contract, bigEyes, bigTricks) || {
+    bigWins: false,
+    payEachSigned: 0,
+    status: "—",
+  };
 
-  if (contract === CONTRACT_TAKE) {
-    bigWins = bigEyes >= 61;
-
-    if (bigWins) {
-      if (bigTricks === 8) { payEachSigned = +6; status = "UZVAR BEZTUKŠĀ"; }
-      else if (bigEyes >= 91) { payEachSigned = +4; status = "UZVAR JAŅOS"; }
-      else { payEachSigned = +2; status = "UZVAR"; }
-    } else {
-      if (bigTricks === 0) { payEachSigned = -8; status = "ZAUDĒ BEZTUKŠĀ"; }
-      else if (bigEyes <= 30) { payEachSigned = -6; status = "ZAUDĒ JAŅOS"; }
-      else { payEachSigned = -4; status = "ZAUDĒ"; }
-    }
-  }
-
-  if (contract === CONTRACT_ZOLE) {
-    bigWins = bigEyes >= 61;
-
-    if (!bigWins) {
-      payEachSigned = -12;
-      status = "ZAUDĒ";
-    } else {
-      if (bigTricks === 8) { payEachSigned = +14; status = "UZVAR BEZTUKŠĀ"; }
-      else if (bigEyes >= 91) { payEachSigned = +12; status = "UZVAR JAŅOS"; }
-      else { payEachSigned = +10; status = "UZVAR"; }
-    }
-  }
+  const payEachSigned = calc.payEachSigned;
+  const bigWins = !!calc.bigWins;
+  const status = String(calc.status || "");
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 

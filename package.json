@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "smoke": "node smoke/smoke_test.js"
+    "smoke": "node smoke/smoke_test.js",
+    "test:scoring": "node smoke/scoring_unit_test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
