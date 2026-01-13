@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "ts": 1768277039709,
+  "ts": 1768276141105,
   "rooms": [
     {
       "roomId": "SMK2",
@@ -295,7 +295,7 @@
       ],
       "leaderSeat": 2,
       "turnSeat": 2,
-      "turnEndsAt": 1768277063757,
+      "turnEndsAt": 1768276141184,
       "trickPlays": [],
       "trickPauseUntil": 0,
       "galdsTrickNo": 0,
@@ -595,7 +595,7 @@
       ],
       "leaderSeat": 2,
       "turnSeat": 2,
-      "turnEndsAt": 1768277063758,
+      "turnEndsAt": 1768276143388,
       "trickPlays": [],
       "trickPauseUntil": 0,
       "galdsTrickNo": 0,
