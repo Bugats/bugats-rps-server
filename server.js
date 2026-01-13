@@ -11,7 +11,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
-const { computePayEachClassic } = require("./scoring");
+const { computePayEachClassic, computeMazaPayEach, computeGaldinsDeltas } = require("./scoring");
 
 const PORT = process.env.PORT || 10080;
 
@@ -126,8 +126,8 @@ const TRICK_PAUSE_MS = Math.max(
 const GALDS_PAY = Math.max(
   1,
   Math.min(
-    5,
-    parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "1", 10) || 1
+    10,
+    parseInt(process.env.GALDS_PAY || process.env.GALDINS_PAY || "2", 10) || 2
   )
 );
 
@@ -1790,10 +1790,10 @@ function scoreMaza(room, reason) {
 
   const bigSeat = room.bigSeat;
   const bigTricks = trickCount(room.taken[bigSeat]);
-  const bigWins = bigTricks === 0;
-
-  const payEachSigned = bigWins ? +12 : -12;
-  const status = bigWins ? "UZVAR" : "ZAUDĒ";
+  const calc = computeMazaPayEach(bigTricks);
+  const bigWins = !!calc.bigWins;
+  const payEachSigned = calc.payEachSigned;
+  const status = String(calc.status || (bigWins ? "UZVAR" : "ZAUDĒ"));
 
   applyPayEachSigned(room, bigSeat, payEachSigned);
 
@@ -1825,35 +1825,11 @@ function scoreGalds(room) {
   const tricks = room.taken.map((t) => trickCount(t));
   const eyes = room.taken.map((t) => sumEyes(t));
 
-  const maxTr = Math.max(...tricks);
-  let losers = [0, 1, 2].filter((s) => tricks[s] === maxTr);
-
-  if (losers.length > 1) {
-    const maxEyesAmong = Math.max(...losers.map((s) => eyes[s]));
-    losers = losers.filter((s) => eyes[s] === maxEyesAmong);
-  }
-
-  const deltas = [0, 0, 0];
-  let loserSeats = [];
-  let note = "";
-
-  if (losers.length === 1) {
-    const L = losers[0];
-    deltas[L] = -2 * GALDS_PAY;
-    for (let s = 0; s < 3; s++) if (s !== L) deltas[s] = +GALDS_PAY;
-    loserSeats = [L];
-    note = `GALDS: loser=seat${L}`;
-  } else if (losers.length === 2) {
-    const [a, b] = losers;
-    deltas[a] = -GALDS_PAY;
-    deltas[b] = -GALDS_PAY;
-    const w = [0, 1, 2].find((s) => s !== a && s !== b);
-    deltas[w] = +2 * GALDS_PAY;
-    loserSeats = [a, b];
-    note = `GALDS: split losers seat${a}&seat${b}`;
-  } else {
-    note = `GALDS: all equal`;
-  }
+  const calc = computeGaldinsDeltas(tricks, eyes, GALDS_PAY);
+  const deltas = calc?.deltas || [0, 0, 0];
+  const loserSeats = typeof calc?.loserSeat === "number" ? [calc.loserSeat] : [];
+  const note =
+    loserSeats.length === 1 ? `GALDS: loser=seat${loserSeats[0]}` : `GALDS: all equal`;
 
   for (let s = 0; s < 3; s++) room.players[s].matchPts += deltas[s];
   syncAllUserPts(room);
@@ -2159,8 +2135,7 @@ function sanitizeStateForSeat(room, seat) {
     rules: {
       trumpsEnabled: !!trumps,
       galdsPay: GALDS_PAY,
-      galdsLoserPts: -(GALDS_PAY * 2),
-      galdsSplitLoserPts: -GALDS_PAY,
+      galdsLoserPts: -(GALDS_PAY * 3),
       startPts: START_PTS,
     },
 

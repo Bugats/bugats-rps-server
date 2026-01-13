@@ -3,6 +3,7 @@
 
 const CONTRACT_TAKE = "ŅEMT GALDU";
 const CONTRACT_ZOLE = "ZOLE";
+const CONTRACT_MAZA = "MAZĀ";
 
 /**
  * Classic Zole payEach rules (from each opponent).
@@ -53,5 +54,44 @@ function computePayEachClassic(contract, bigEyes, bigTricks) {
   return { bigWins, payEachSigned: -6, status: "ZAUDĒ" };
 }
 
-module.exports = { computePayEachClassic };
+/**
+ * MAZĀ ZOLE (3 spēlētāji, klasiskā tabula no lietotāja):
+ * - deklarētājs ("lielais") uzvar tikai ar bezstiķi => payEach +6 no katra
+ * - citādi zaudē => payEach -7 katram
+ */
+function computeMazaPayEach(bigTricks) {
+  const bTr = Number(bigTricks || 0) || 0;
+  const bigWins = bTr === 0;
+  if (bigWins) return { bigWins, payEachSigned: +6, status: "UZVAR (BEZSTIĶIS)" };
+  return { bigWins, payEachSigned: -7, status: "ZAUDĒ" };
+}
+
+/**
+ * GALDIŅŠ (visi GARĀM) — tabula no lietotāja:
+ * - zaudētājs: -6
+ * - pārējie: +2 katrs
+ *
+ * Ja ir pilnīgs neizšķirts pēc stiķiem un acīm, atgriež null (0 visiem).
+ */
+function computeGaldinsDeltas(tricks, eyes, pay = 2) {
+  const tr = Array.isArray(tricks) ? tricks.map((x) => Number(x || 0) || 0) : [0, 0, 0];
+  const ey = Array.isArray(eyes) ? eyes.map((x) => Number(x || 0) || 0) : [0, 0, 0];
+  const maxTr = Math.max(...tr);
+  let losers = [0, 1, 2].filter((s) => tr[s] === maxTr);
+
+  if (losers.length > 1) {
+    const maxEyesAmong = Math.max(...losers.map((s) => ey[s]));
+    losers = losers.filter((s) => ey[s] === maxEyesAmong);
+  }
+
+  if (losers.length !== 1) return null; // neizšķirts
+  const L = losers[0];
+  const p = Number(pay || 0) || 0;
+  const deltas = [0, 0, 0];
+  deltas[L] = -3 * p; // -6, ja p=2
+  for (let s = 0; s < 3; s++) if (s !== L) deltas[s] = +p;
+  return { deltas, loserSeat: L };
+}
+
+module.exports = { computePayEachClassic, computeMazaPayEach, computeGaldinsDeltas, CONTRACT_TAKE, CONTRACT_ZOLE, CONTRACT_MAZA };
 
