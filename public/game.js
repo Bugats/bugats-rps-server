@@ -102,8 +102,8 @@ let toastTimer = null;
 let _lastTapKey = "";
 let _lastTapAt = 0;
 
-// Trick UX: pēc 3. kārts stiķis ir pamanāms, bet pēc ~2.5s pazūd (nekarājas līdz nākamajam gājienam)
-const TRICK_HIDE_MS = 2500;
+// Trick UX: pēc 3. kārts stiķis ir pamanāms, bet pēc ~1.5s pazūd (nekarājas līdz nākamajam gājienam)
+const TRICK_HIDE_MS = 1500;
 let _trickHold = null; // { key: string, plays: Array<{seat,card}>, hideAt: number }
 let _trickAutoHideTimer = 0;
 

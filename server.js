@@ -119,7 +119,7 @@ const TURN_MS = Math.max(5000, Math.min(60000, parseInt(process.env.TURN_MS || "
 // Pauze pēc 3. kārts stiķī (lai visi paspēj redzēt)
 const TRICK_PAUSE_MS = Math.max(
   0,
-  Math.min(5000, parseInt(process.env.TRICK_PAUSE_MS || "2500", 10) || 2500)
+  Math.min(5000, parseInt(process.env.TRICK_PAUSE_MS || "1500", 10) || 1500)
 );
 
 // “Galda/Galdiņa” pamata likme
