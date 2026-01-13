@@ -124,6 +124,9 @@
             <button id="btnLastRoom" class="zl-btn" type="button" title="Pievienoties pēdējai istabai">
               Pēdējā istaba
             </button>
+            <button id="btnFeedback" class="zl-btn" type="button" title="Nosūtīt atsauksmi">
+              Atsauksmes
+            </button>
           </div>
 
           <div class="zl-hint">
@@ -166,6 +169,33 @@
           <ol id="top10List" class="zl-top10" style="margin-top:10px;"></ol>
         </div>
       </main>
+
+      <div class="zl-modal" id="feedbackModal" style="display:none" aria-hidden="true">
+        <div class="zl-modal-card" role="dialog" aria-modal="true" aria-label="Atsauksmes">
+          <div class="zl-modal-top">
+            <div style="font-weight:900;">Atsauksmes</div>
+            <button class="zl-btn" id="btnFeedbackClose" type="button">Aizvērt</button>
+          </div>
+          <div class="zl-modal-body">
+            <label>
+              Tips
+              <select id="feedbackType" class="zl-input">
+                <option value="bug">Bug</option>
+                <option value="idea">Ideja</option>
+                <option value="feedback" selected>Atsauksme</option>
+              </select>
+            </label>
+            <label>
+              Ziņa (vēlams: ierīce/browseris + kas tieši notika)
+              <textarea id="feedbackMsg" class="zl-input" rows="5" placeholder="Apraksti īsi un konkrēti..."></textarea>
+            </label>
+            <div class="zl-row" style="justify-content:flex-end;">
+              <button class="zl-btn zl-primary" id="btnFeedbackSend" type="button">Sūtīt</button>
+            </div>
+            <div class="zl-hint" id="feedbackHint">Room tiks pievienots automātiski (ja ir).</div>
+          </div>
+        </div>
+      </div>
 
       <footer class="zl-foot">thezone.lv • Zole</footer>
     </div>

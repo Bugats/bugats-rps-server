@@ -18,6 +18,7 @@ const btnCreate = $("#btnCreate");
 const btnJoin = $("#btnJoin");
 const btnLastRoom = $("#btnLastRoom");
 const btnQuick = $("#btnQuick");
+const btnFeedback = $("#btnFeedback");
 
 const errBox = $("#errBox");
 
@@ -31,6 +32,14 @@ const top10List = $("#top10List");
 const btnTopAll = $("#btnTopAll");
 const btnTopMonth = $("#btnTopMonth");
 const btnTopWeek = $("#btnTopWeek");
+
+// Feedback modal
+const feedbackModal = $("#feedbackModal");
+const btnFeedbackClose = $("#btnFeedbackClose");
+const btnFeedbackSend = $("#btnFeedbackSend");
+const feedbackType = $("#feedbackType");
+const feedbackMsg = $("#feedbackMsg");
+const feedbackHint = $("#feedbackHint");
 
 // Profile UI
 const profileNameEl = $("#profileName");
@@ -484,6 +493,54 @@ function quickPlay() {
   });
 }
 
+function openFeedback() {
+  if (!feedbackModal) return;
+  feedbackModal.style.display = "grid";
+  feedbackModal.setAttribute("aria-hidden", "false");
+  try {
+    const last = normRoom(localStorage.getItem(K_LASTROOM) || "");
+    if (feedbackHint)
+      feedbackHint.textContent = last ? `Room: ${last}` : "Room tiks pievienots automātiski (ja ir).";
+  } catch {}
+}
+function closeFeedback() {
+  if (!feedbackModal) return;
+  feedbackModal.style.display = "none";
+  feedbackModal.setAttribute("aria-hidden", "true");
+}
+async function sendFeedback() {
+  const msg = String(feedbackMsg?.value || "").trim();
+  if (!msg) return showErr("Atsauksme ir tukša.");
+
+  const type = String(feedbackType?.value || "feedback").trim();
+  const roomId = normRoom(localStorage.getItem(K_LASTROOM) || "");
+  const meta = {
+    ua: navigator.userAgent,
+    lang: navigator.language,
+    vw: window.innerWidth,
+    vh: window.innerHeight,
+    dpr: window.devicePixelRatio,
+    ts: Date.now(),
+  };
+
+  try {
+    const r = await fetch(`${API_BASE}/feedback`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, message: msg, roomId, page: "lobby", meta }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok || data?.ok === false) throw new Error(data?.error || "FAILED");
+    showErr("");
+    if (feedbackMsg) feedbackMsg.value = "";
+    closeFeedback();
+    alert("Paldies! Atsauksme nosūtīta.");
+  } catch (e) {
+    showErr(`Neizdevās nosūtīt: ${String(e?.message || e || "ERROR")}`);
+  }
+}
+
 async function boot() {
   if (window.__zlBooted) return;
   window.__zlBooted = true;
@@ -530,6 +587,7 @@ async function boot() {
   if (btnCreate) btnCreate.addEventListener("click", () => joinRoom(true));
   if (btnJoin) btnJoin.addEventListener("click", () => joinRoom(false));
   if (btnQuick) btnQuick.addEventListener("click", () => quickPlay());
+  if (btnFeedback) btnFeedback.addEventListener("click", openFeedback);
   if (btnLastRoom) {
     btnLastRoom.addEventListener("click", () => {
       showErr("");
@@ -568,6 +626,18 @@ async function boot() {
       renderProfileBar(loadProfileFromStorage());
     });
   }
+
+  // Feedback modal
+  try {
+    btnFeedbackClose?.addEventListener("click", closeFeedback);
+    btnFeedbackSend?.addEventListener("click", sendFeedback);
+    feedbackModal?.addEventListener("click", (e) => {
+      if (e?.target === feedbackModal) closeFeedback();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e?.key === "Escape") closeFeedback();
+    });
+  } catch {}
 }
 
 if (document.readyState === "loading") {

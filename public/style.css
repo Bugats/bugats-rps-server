@@ -88,6 +88,57 @@ body.zl-body, body.zg-body{
 }
 .zl-form input:focus{ border-color: rgba(255,255,255,0.28); }
 
+/* Lobby modal (atsauksmes) */
+.zl-modal{
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+}
+.zl-modal-card{
+  width: min(760px, 96vw);
+  max-height: min(82vh, 720px);
+  overflow: auto;
+  border-radius: 16px;
+  background: rgba(16,22,35,0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 30px 120px rgba(0,0,0,0.55);
+}
+.zl-modal-top{
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px;
+  background: rgba(16,22,35,0.98);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.zl-modal-body{
+  padding: 12px 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+.zl-input{
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  padding: 8px 12px;
+  outline: none;
+}
+textarea.zl-input{
+  height: auto;
+  resize: vertical;
+  min-height: 110px;
+}
+
 .zl-row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:4px; }
 .zl-btn{
   height:44px;
@@ -1363,6 +1414,22 @@ body.zl-game #felt.zg-felt{
   color: var(--text);
   cursor:pointer;
   font-weight:900;
+}
+
+.zg-input{
+  width: 100%;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  padding: 8px 10px;
+  outline: none;
+}
+textarea.zg-input{
+  height: auto;
+  min-height: 110px;
+  resize: vertical;
 }
 
 /* "TU" kartīte (mobīlā) - mazliet necaurspīdīgāka, lai izskatās kā aplikācijā */

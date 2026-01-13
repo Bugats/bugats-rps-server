@@ -41,6 +41,8 @@
 
           <button id="btnHelp" class="zg-btn" title="Palīdzība / noteikumi">?</button>
 
+          <button id="btnFeedback" class="zg-btn" title="Nosūtīt atsauksmi">FB</button>
+
           <button id="btnFullscreen" class="zg-btn" title="Pilnekrāna režīms">
             FULL
           </button>
@@ -116,6 +118,31 @@
                 <button class="zg-btn zg-help-close" id="btnHelpClose">Aizvērt</button>
               </div>
               <div class="zg-help-body" id="helpBody"></div>
+            </div>
+          </div>
+
+          <!-- Atsauksmes -->
+          <div class="zg-help" id="feedbackModal" style="display: none" aria-hidden="true">
+            <div class="zg-help-card" role="dialog" aria-modal="true" aria-label="Atsauksmes">
+              <div class="zg-help-top">
+                <div class="zg-help-title">Atsauksmes</div>
+                <button class="zg-btn zg-help-close" id="btnFeedbackClose">Aizvērt</button>
+              </div>
+              <div class="zg-help-body">
+                <div class="zg-small" style="margin-bottom:8px;">Room tiks pievienots automātiski.</div>
+                <label class="zg-small">Tips</label>
+                <select id="feedbackType" class="zg-input">
+                  <option value="bug">Bug</option>
+                  <option value="idea">Ideja</option>
+                  <option value="feedback" selected>Atsauksme</option>
+                </select>
+                <div style="height:8px;"></div>
+                <label class="zg-small">Ziņa</label>
+                <textarea id="feedbackMsg" class="zg-input" rows="5" placeholder="Apraksti īsi un konkrēti..."></textarea>
+                <div class="zg-row" style="justify-content:flex-end; margin-top:10px;">
+                  <button class="zg-btn" id="btnFeedbackSend" type="button">Sūtīt</button>
+                </div>
+              </div>
             </div>
           </div>
 

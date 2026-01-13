@@ -276,6 +276,7 @@ const BANS_PATH = path.join(DATA_DIR, "zole_bans.json");
 let BANS = readJson(BANS_PATH, { users: {}, ips: {} });
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
 const REPORTS_PATH = path.join(DATA_DIR, "zole_reports.jsonl");
+const FEEDBACK_PATH = path.join(DATA_DIR, "zole_feedback.jsonl");
 
 function bansSave() {
   writeJson(BANS_PATH, BANS);
@@ -815,6 +816,39 @@ app.post(["/report", "/api/report", "/auth/report", "/api/auth/report"], (req, r
     return res.json({ ok: true, ts: Date.now() });
   } catch {
     return res.status(500).json({ ok: false, error: "REPORT_FAILED" });
+  }
+});
+
+app.post(["/feedback", "/api/feedback", "/auth/feedback", "/api/auth/feedback"], (req, res) => {
+  try {
+    // auth nav obligāts (var būt anonīms)
+    const token = getTokenFromReq(req);
+    const v = verifyToken(token);
+    const username = v.ok ? safeUsername(v.payload?.username) : null;
+
+    const type = String(req.body?.type || "feedback").trim().slice(0, 24);
+    const message = String(req.body?.message || "").trim().slice(0, 2000);
+    const roomId = normRoomId(req.body?.roomId || "");
+    const page = String(req.body?.page || "").trim().slice(0, 64);
+    const meta = req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : null;
+
+    if (!message) return res.status(400).json({ ok: false, error: "EMPTY" });
+
+    appendJsonl(FEEDBACK_PATH, {
+      ts: Date.now(),
+      username,
+      type,
+      message,
+      roomId: roomId || null,
+      page: page || null,
+      meta,
+      ip: String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || ""),
+      ua: String(req.headers["user-agent"] || ""),
+    });
+
+    return res.json({ ok: true, ts: Date.now() });
+  } catch {
+    return res.status(500).json({ ok: false, error: "FEEDBACK_FAILED" });
   }
 });
 

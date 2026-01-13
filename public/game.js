@@ -61,6 +61,7 @@ const btnLeaveToLobby = $("#btnLeaveToLobby");
 const btnReadyToggle = $("#btnReadyToggle");
 const btnPtsToggle = $("#btnPtsToggle");
 const btnHelp = $("#btnHelp");
+const btnFeedback = $("#btnFeedback");
 
 // FULLSCREEN poga (no game.html)
 const btnFullscreen = $("#btnFullscreen");
@@ -72,6 +73,12 @@ const hudToast = $("#hudToast");
 const helpModal = $("#helpModal");
 const helpBody = $("#helpBody");
 const btnHelpClose = $("#btnHelpClose");
+
+const feedbackModal = $("#feedbackModal");
+const btnFeedbackClose = $("#btnFeedbackClose");
+const btnFeedbackSend = $("#btnFeedbackSend");
+const feedbackType = $("#feedbackType");
+const feedbackMsg = $("#feedbackMsg");
 
 // Card images (SVG data-uri) cache
 const _cardImgCache = new Map(); // key -> data-uri
@@ -1547,6 +1554,45 @@ function closeHelp() {
   helpModal.setAttribute("aria-hidden", "true");
 }
 
+function openFeedback() {
+  if (!feedbackModal) return;
+  feedbackModal.style.display = "grid";
+  feedbackModal.setAttribute("aria-hidden", "false");
+}
+function closeFeedback() {
+  if (!feedbackModal) return;
+  feedbackModal.style.display = "none";
+  feedbackModal.setAttribute("aria-hidden", "true");
+}
+async function sendFeedback() {
+  const msg = String(feedbackMsg?.value || "").trim();
+  if (!msg) return showHudToast("Atsauksme ir tukša", 1800);
+  const type = String(feedbackType?.value || "feedback").trim();
+  const meta = {
+    ua: navigator.userAgent,
+    lang: navigator.language,
+    vw: window.innerWidth,
+    vh: window.innerHeight,
+    dpr: window.devicePixelRatio,
+    ts: Date.now(),
+  };
+  try {
+    const r = await fetch(`${API_BASE}/feedback`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, message: msg, roomId: ROOM_ID, page: "game", meta }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok || data?.ok === false) throw new Error(data?.error || "FAILED");
+    if (feedbackMsg) feedbackMsg.value = "";
+    closeFeedback();
+    showHudToast("Paldies! Atsauksme nosūtīta.", 2200);
+  } catch (e) {
+    showHudToast(`Neizdevās nosūtīt: ${String(e?.message || e || "ERROR")}`, 2600);
+  }
+}
+
 function syncTurnCountdown() {
   if (!statusChip) return;
   const base = statusChip.dataset?.base || statusChip.textContent || "";
@@ -1993,6 +2039,19 @@ function boot() {
     });
     document.addEventListener("keydown", (e) => {
       if (e?.key === "Escape") closeHelp();
+    });
+  } catch {}
+
+  // Atsauksmes
+  try {
+    btnFeedback?.addEventListener("click", openFeedback);
+    btnFeedbackClose?.addEventListener("click", closeFeedback);
+    btnFeedbackSend?.addEventListener("click", sendFeedback);
+    feedbackModal?.addEventListener("click", (e) => {
+      if (e?.target === feedbackModal) closeFeedback();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e?.key === "Escape") closeFeedback();
     });
   } catch {}
 
