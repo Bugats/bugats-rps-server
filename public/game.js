@@ -359,226 +359,28 @@ removeById("allPassPayLabel"); // game.html v32+
 let _layoutAppliedOnce = false;
 
 function ensureBugatsZoleUiStyle() {
-  const OLD_ID = "bugatsZoleUiStyle_v2_tableHand";
-  const id = "bugatsZoleUiStyle_v6_centerBigCards_fullscreenFit_zfix";
-
-  try {
-    document.getElementById(OLD_ID)?.remove();
-  } catch {}
-  try {
-    document.getElementById("bugatsZoleUiStyle_v3_meLeft")?.remove();
-  } catch {}
-  try {
-    document.getElementById("bugatsZoleUiStyle_v4_centerBigCards")?.remove();
-  } catch {}
-  try {
-    document.getElementById("bugatsZoleUiStyle_v5_centerBigCards_fullscreenFit")?.remove();
-  } catch {}
-
-  if (document.getElementById(id)) return;
-
-  const st = document.createElement("style");
-  st.id = id;
-  st.textContent = `
-/* ===== BUGATS ZOLE — v6: Fullscreen-fit + kārtis centrā + lielākas + z-index fix ===== */
-.zg-felt, .zl-felt, #felt, #zoleFelt, .zole-felt, .zg-table, .zg-board{
-  /* galds pilnekrāna lapā, bet vizuāli ne pārāk liels */
-  width: min(1200px, 96vw) !important;
-  max-width: none !important;
-}
-#felt{
-  margin: 0 auto !important;
-  background-size: contain !important; /* lai bilde nav “pār-zoom” */
-}
-#metaLine, #turnLine{
-  font-size: 12px !important;
-  opacity: 0.85 !important;
-}
-#stateBox, #logBox{ display:none !important; }
-
-/* Hand stack vienmēr virs player dock (fix overlap) */
-#zgBottomStack{
-  position: absolute;
-  left: 50%;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  width: min(1400px, 92vw);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  z-index: 90; /* bija 70 */
-  pointer-events: none;
-}
-#zgBottomStack #handInfo{ display:none !important; } /* liekie uzraksti nost */
-#zgBottomStack #hand{
-  position: relative;
-  width: 100%;
-  height: 220px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding-bottom: 2px;
-  pointer-events: auto;
-}
-#zgBottomStack #hand .zg-cardbtn{
-  width: 118px;
-  height: 166px;
-  margin-left: -72px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
-  transform: none !important;
-}
-#zgBottomStack #hand .zg-cardbtn:first-child{ margin-left: 0; }
-#zgBottomStack #hand .zg-cardbtn:hover{
-  transform: translateY(-16px) scale(1.02) !important;
-  z-index: 9999 !important;
-}
-#zgBottomStack #hand .zg-cardbtn.zg-selected{
-  transform: translateY(-20px) scale(1.02) !important;
-  z-index: 9999 !important;
-}
-#zgBottomStack #hand .zg-cardbtn.zg-disabled{
-  opacity: 0.35 !important;
-  filter: grayscale(0.15);
-  pointer-events: none;
-}
-#zgBottomStack #hand .zg-cardbtn.zg-legal{
-  filter: drop-shadow(0 0 10px rgba(124,255,178,0.25));
-}
-
-#zgMeDock{
-  position: absolute;
-  left: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  width: min(360px, 30vw);
-  z-index: 80; /* bija 80, bet stack tagad 90 */
-  pointer-events: none;
-}
-#zgMeDock #seatBottom{ width: 100%; }
-#zgMeDock #seatBottom .zg-seat-inner{
-  transform: scale(0.92);
-  transform-origin: bottom left;
-}
-
-#seatLeft .zg-seat-inner, #seatRight .zg-seat-inner{
-  transform: scale(0.90);
-  transform-origin: top left;
-}
-#seatRight .zg-seat-inner{ transform-origin: top right; }
-
-@media (max-width: 900px){
-  #zgMeDock{ width: min(320px, 44vw); left: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
-  #zgBottomStack{
-    width: min(1200px, 96vw);
-    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  // Legacy: agrāk UI izskatu injicējām no JS ar lielu `<style>` bloku.
+  // Tagad izskats ir tikai `public/style.css`, lai nebūtu “laboju vienu failu, bet rāda citu”.
+  const ids = [
+    "bugatsZoleUiStyle_v2_tableHand",
+    "bugatsZoleUiStyle_v3_meLeft",
+    "bugatsZoleUiStyle_v4_centerBigCards",
+    "bugatsZoleUiStyle_v5_centerBigCards_fullscreenFit",
+    "bugatsZoleUiStyle_v6_centerBigCards_fullscreenFit_zfix",
+  ];
+  for (const id of ids) {
+    try {
+      document.getElementById(id)?.remove();
+    } catch {}
   }
-  #zgBottomStack #hand{ height: 200px; }
-  #zgBottomStack #hand .zg-cardbtn{
-    width: 108px;
-    height: 152px;
-    margin-left: -66px;
-  }
-}
-
-@media (max-width: 600px){
-  /* vēl mazāks “TU” dock, lai nelien iekš kārtīm */
-  #zgMeDock{
-    width: min(260px, 46vw);
-    left: 8px;
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  }
-  #zgMeDock #seatBottom .zg-seat-inner{
-    transform: scale(0.82);
-  }
-}
-
-/* liekie overlay teksti nost (paliek tikai pogas) */
-#overlayNote{ display:none !important; }
-`;
-  document.head.appendChild(st);
 }
 
 function ensurePrettyCardsStyle() {
-  const id = "zgPrettyCardsStyle_v1";
-  if (document.getElementById(id)) return;
-
-  const st = document.createElement("style");
-  st.id = id;
-  st.textContent = `
-/* ===== ZOLE: Pretty Cards v1 (no images, no layout shift) ===== */
-.zg-card.zg-pretty{
-  position: relative;
-  width: 100%;
-  height: 100%;
-  /* bez apaļiem stūriem */
-  border-radius: 0px;
-  background: linear-gradient(180deg, #ffffff 0%, #f2f4f7 100%);
-  border: 1px solid rgba(0,0,0,0.18);
-  box-shadow:
-    0 14px 30px rgba(0,0,0,0.28),
-    inset 0 1px 0 rgba(255,255,255,0.85);
-  overflow: hidden;
-  color: #121316;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-}
-.zg-card.zg-pretty::before{
-  content:"";
-  position:absolute;
-  inset:10px;
-  border-radius: 0px;
-  border: 1px solid rgba(0,0,0,0.06);
-  pointer-events:none;
-}
-.zg-card.zg-pretty::after{
-  content:"";
-  position:absolute;
-  inset:-45%;
-  background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 58%);
-  transform: rotate(12deg);
-  opacity: 0.55;
-  pointer-events:none;
-}
-.zg-card.zg-pretty.zg-card-red{ color: #c1121f; }
-.zg-card.zg-pretty .zg-corner{
-  position:absolute;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  line-height:1;
-  font-weight: 950;
-  letter-spacing: -0.3px;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 0 rgba(255,255,255,0.35);
-  user-select:none;
-}
-.zg-card.zg-pretty .zg-tl{ top:10px; left:10px; }
-.zg-card.zg-pretty .zg-br{ bottom:10px; right:10px; transform: rotate(180deg); }
-.zg-card.zg-pretty .zg-crank{
-  font-size: 30px;
-  min-width: 32px;
-  text-align:center;
-}
-.zg-card.zg-pretty .zg-csuit{
-  font-size: 22px;
-  margin-top: 3px;
-}
-.zg-card.zg-pretty .zg-pip{
-  position:absolute;
-  left:50%;
-  top:52%;
-  transform: translate(-50%, -50%);
-  font-size: 74px;
-  font-weight: 950;
-  opacity: 0.20;
-  line-height: 1;
-  user-select:none;
-}
-`;
-  document.head.appendChild(st);
+  // Legacy: agrāk kāršu “pretty” CSS injicējām no JS.
+  // Tagad tas ir `public/style.css` (viena vieta, kur labot dizainu).
+  try {
+    document.getElementById("zgPrettyCardsStyle_v1")?.remove();
+  } catch {}
 }
 
 function removeDebugUiHard() {
@@ -678,67 +480,11 @@ function ensureMiniPtsHud() {
     document.body.appendChild(miniPtsHudEl);
   }
 
-  const styleId = "miniPtsHudStyle";
-  if (!document.getElementById(styleId)) {
-    const st = document.createElement("style");
-    st.id = styleId;
-    st.textContent = `
-#miniPtsHud{
-  position:fixed;
-  right:12px;
-  bottom:12px;
-  z-index:9999;
-  width:230px;
-  padding:10px 10px 8px;
-  border-radius:12px;
-  background:rgba(0,0,0,0.55);
-  border:1px solid rgba(255,255,255,0.14);
-  backdrop-filter: blur(6px);
-  color:#fff;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-  pointer-events:none;
-}
-#miniPtsHud .mph-title{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:6px;
-  font-size:12px;
-  letter-spacing:0.4px;
-  opacity:0.95;
-}
-#miniPtsHud .mph-title b{font-weight:900;}
-#miniPtsHud .mph-muted{opacity:0.7;}
-
-#miniPtsHud .mph-grid{
-  display:grid;
-  grid-template-columns: 34px repeat(3, 1fr);
-  column-gap: 6px;
-  row-gap: 4px;
-  font-size:12px;
-  line-height:1.1;
-  font-variant-numeric: tabular-nums;
-}
-#miniPtsHud .mph-cell{ padding:2px 0; }
-#miniPtsHud .mph-head{
-  font-weight:900;
-  text-align:center;
-  opacity:0.95;
-}
-#miniPtsHud .mph-n{ opacity:0.75; }
-#miniPtsHud .mph-val{
-  text-align:center;
-  font-weight:900;
-  white-space:nowrap;
-}
-#miniPtsHud .mph-zero{ opacity:0.55; font-weight:800; }
-#miniPtsHud .mph-pos{ color:#7CFFB2; }
-#miniPtsHud .mph-neg{ color:#FF7C7C; }
-
-`;
-    document.head.appendChild(st);
-  }
+  // Legacy: agrāk PTS HUD CSS injicējām no JS.
+  // Tagad to pilnībā kontrolē `public/style.css`.
+  try {
+    document.getElementById("miniPtsHudStyle")?.remove();
+  } catch {}
 
   return miniPtsHudEl;
 }
