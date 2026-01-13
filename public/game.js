@@ -1213,6 +1213,7 @@ function renderHand() {
 
     const n = Math.max(1, handSorted.length);
     const vw = Math.max(320, window.innerWidth || 0);
+    const isLargeDesktop = !isMobile && vw >= 1400;
 
     // Mobilajā atstājam vietu “galda kārtīm” (talons) un PTS HUD, lai roka neiet tiem virsū.
     let reserveLeft = 12;
@@ -1252,8 +1253,9 @@ function renderHand() {
     const fsMult = isFs ? (isMobile ? 3.0 : 1.32) : 1.0;
 
     // Mobilajā gribam lielākas kārtis, bet tikai tik daudz, lai vienmēr ietilpst.
-    const base = Math.round((isMobile ? 112 : 120) * fsMult);
-    const minW = Math.round((isMobile ? 78 : 82) * (isFs ? 1.16 : 1.0));
+    // Lielajiem ekrāniem (>=1440px) — nedaudz lielāks “default” izmērs.
+    const base = Math.round((isMobile ? 112 : isLargeDesktop ? 148 : 120) * fsMult);
+    const minW = Math.round((isMobile ? 78 : isLargeDesktop ? 96 : 82) * (isFs ? 1.16 : 1.0));
 
     const phaseNow = String(roomState.phase || "");
     // overlap koeficients (jo lielāks, jo ciešāk kārtis “saiet kopā”)
@@ -1274,7 +1276,7 @@ function renderHand() {
     try {
       const root = document.documentElement;
       const cardH = Math.round(cw * 1.4);
-      const trickW = Math.round(cw * 0.92);
+      const trickW = Math.round(cw * (isLargeDesktop ? 0.98 : 0.92));
       const trickH = Math.round(trickW * 1.4);
       const talW = Math.round(cw * 0.55);
       const talH = Math.round(talW * 1.4);
@@ -1282,13 +1284,15 @@ function renderHand() {
       // Seat platums (vārdi + bedži)
       const seatW = isMobile
         ? Math.round(Math.min(168, Math.max(132, cw * 1.35)))
-        : Math.round(Math.min(220, Math.max(170, cw * 1.55)));
+        : Math.round(Math.min(isLargeDesktop ? 260 : 220, Math.max(170, cw * 1.55)));
 
       // Roka: augstums, lai paceltas kārtis negriežas
       const vh = Math.max(400, window.innerHeight || 0);
       const handAreaH = isMobile
         ? Math.round(Math.min(vh * 0.56, Math.max(180, cardH + 72)))
-        : 220;
+        : isLargeDesktop
+          ? 260
+          : 220;
 
       root.style.setProperty("--card-w", `${cw}px`);
       root.style.setProperty("--card-h", `${cardH}px`);

@@ -1209,6 +1209,25 @@ body.zl-game #felt.zg-felt{
   #zgMeDock{ left: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
 }
 
+/* Desktop 1440p+ (lielāks monitors): nedaudz plašāks un “elpojošāks” izkārtojums */
+@media (min-width: 1440px){
+  .zg-seat{
+    padding: 10px;
+    border-radius: 14px;
+  }
+  .zg-top-left{ top: 12px; left: 12px; }
+  .zg-top-right{ top: 12px; right: 12px; }
+
+  /* Stiķī vairāk atstarpes, lai neizskatās saspiesti */
+  .zg-trick{ width: min(760px, 92vw); }
+  .zg-slot-left{ left: 110px; top: 30px; }
+  .zg-slot-right{ right: 110px; top: 30px; }
+  .zg-slot-bottom{ bottom: 4px; }
+
+  /* Status čipam ļaujam būt garākam */
+  .zg-status{ max-width: min(980px, 64vw); }
+}
+
 /* Košākas kārtis (cipari/masti/figūras) */
 .zg-card.zg-pretty{
   background: linear-gradient(180deg, #ffffff 0%, #f7fbff 60%, #eef4ff 100%) !important;
